@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import Home from './components/Home';
+import SceneWrapper from './components/quiz/SceneWrapper';
 import { ThemeProvider } from './components/theme/ThemeContext';
 import './components/theme/theme.css';
 import './components/theme/theme-utils.css';
@@ -10,6 +11,11 @@ function App() {
   const [missingKeys, setMissingKeys] = useState({ openai: false, gemini: false, tts: false });
   const [showKeyModal, setShowKeyModal] = useState(false);
   const [provider, setProvider] = useState('gemini');
+
+  // Check URL for quiz mode: ?mode=quiz
+  const urlParams = new URLSearchParams(window.location.search);
+  const initialMode = urlParams.get('mode');
+  const [appMode, setAppMode] = useState(initialMode === 'quiz' ? 'quiz' : 'authoring');
 
   const refreshStatus = async () => {
     // Compute missing keys locally (per-user)
@@ -33,10 +39,30 @@ function App() {
     window.addEventListener('open-api-key-modal', handler);
     return () => window.removeEventListener('open-api-key-modal', handler);
   }, []);
+
+  // Listen for quiz mode toggle events from Header
+  useEffect(() => {
+    const handleQuizMode = () => setAppMode('quiz');
+    window.addEventListener('enter-quiz-mode', handleQuizMode);
+    return () => window.removeEventListener('enter-quiz-mode', handleQuizMode);
+  }, []);
+
+  const handleExitQuiz = () => {
+    setAppMode('authoring');
+    // Update URL without reloading
+    const url = new URL(window.location.href);
+    url.searchParams.delete('mode');
+    window.history.replaceState({}, '', url.toString());
+  };
+
   return (
     <ThemeProvider>
       <div className="App">
-        <Home />
+        {appMode === 'quiz' ? (
+          <SceneWrapper onExitQuiz={handleExitQuiz} />
+        ) : (
+          <Home />
+        )}
         {showKeyModal && (
           <ApiKeyModal
             missing={missingKeys}

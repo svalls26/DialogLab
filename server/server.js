@@ -571,6 +571,39 @@ app.post('/api/generate-conversation-prompt', async (req, res) => {
   }
 });
 
+// Quiz mode endpoint - validates flashcard data and returns a formatted conversation prompt
+app.post('/api/quiz/prepare', async (req, res) => {
+  try {
+    const { flashcards, topic, examinerName } = req.body;
+
+    if (!flashcards || !Array.isArray(flashcards) || flashcards.length === 0) {
+      return res.status(400).json({ error: 'At least one flashcard is required' });
+    }
+
+    // Validate flashcard structure
+    const validCards = flashcards.filter(fc => fc.question && fc.answer);
+    if (validCards.length === 0) {
+      return res.status(400).json({ error: 'Flashcards must have both question and answer fields' });
+    }
+
+    // Build the quiz prompt
+    const flashcardList = validCards
+      .map((fc, i) => `  ${i + 1}. Q: ${fc.question} | A: ${fc.answer}`)
+      .join('\n');
+
+    const conversationPrompt = `You are ${examinerName || 'the examiner'} conducting an oral quiz on the topic of "${topic || 'General Knowledge'}". You have the following flashcards to quiz the student on:\n${flashcardList}\n\nAsk these questions one at a time. After the student answers, provide brief feedback on whether the answer is correct or incorrect with a short explanation, then move on to the next question. When all questions are done, give a summary of the student's performance.`;
+
+    res.json({
+      conversationPrompt,
+      cardCount: validCards.length,
+      topic: topic || 'General Knowledge',
+    });
+  } catch (error) {
+    console.error('Error preparing quiz:', error);
+    res.status(500).json({ error: 'Failed to prepare quiz' });
+  }
+});
+
 // Add new endpoint for deleting audio files
 app.post('/api/delete-audio-files', async (req, res) => {
   try {
