@@ -144,6 +144,21 @@ app.post("/api/start-conversation", async (req, res) => {
       safeWrite(JSON.stringify({ type: "human_input_required", speaker }) + "\n");
     };
 
+    // Create a promise that resolves when the conversation is complete or the
+    // client disconnects.  This keeps the chunked response stream alive so that
+    // messages produced by provideHumanInput / continueConversation can still
+    // be written to the client.
+    let resolveConversationDone;
+    const conversationDone = new Promise((resolve) => {
+      resolveConversationDone = resolve;
+    });
+
+    // End the stream when the client disconnects early
+    req.on('close', () => {
+      console.log('Client disconnected from start-conversation stream');
+      resolveConversationDone();
+    });
+
     // Add a callback for when the conversation is complete
     conversationManager.onConversationComplete = () => {
       // Update the conversation memory when conversation is complete
@@ -151,11 +166,14 @@ app.post("/api/start-conversation", async (req, res) => {
         console.log("Conversation complete, updating conversation memory");
         conversationMemory.conversationHistory = [...conversationManager.conversation];
       }
-      
+
       // Only send completion signal if conversation is not paused or waiting for approval
       if (!conversationManager.isWaitingForApproval && !conversationManager.conversationPaused) {
         console.log("Conversation complete, sending completion signal");
         safeWrite(JSON.stringify({ type: "completion", status: "done" }) + "\n");
+        // Conversation is fully done — close the stream
+        safeEnd();
+        resolveConversationDone();
       } else {
         console.log("Conversation complete but paused - holding completion signal");
       }
@@ -163,13 +181,20 @@ app.post("/api/start-conversation", async (req, res) => {
 
     await runConversation(config, res, safeWrite, safeEnd);
 
-    // After runConversation is complete, if completeConversation was requested,
-    // ensure we signal completion if it wasn't already signaled AND conversation isn't paused
-    if (config.completeConversation && !conversationManager.isWaitingForApproval && !conversationManager.conversationPaused) {
-      console.log("Conversation processing finished");
-      safeWrite(JSON.stringify({ type: "completion", status: "finished" }) + "\n");
+    // If the conversation runs to completion synchronously (completeConversation
+    // mode), close the stream now.  Otherwise keep it open for human input.
+    if (config.completeConversation) {
+      if (!conversationManager.isWaitingForApproval && !conversationManager.conversationPaused) {
+        console.log("Conversation processing finished");
+        safeWrite(JSON.stringify({ type: "completion", status: "finished" }) + "\n");
+      }
+      safeEnd();
+      resolveConversationDone();
     }
-    safeEnd();
+
+    // Wait for the conversation to finish (or the client to disconnect) before
+    // returning from this handler.  This keeps the chunked response open.
+    await conversationDone;
   } catch (error) {
     console.error("Error running conversation:", error);
     if (!res.headersSent) {

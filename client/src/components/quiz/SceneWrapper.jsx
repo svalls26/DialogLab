@@ -73,7 +73,10 @@ const SceneWrapper = ({ onExitQuiz }) => {
   }, []);
 
   const initializeAvatar = async (containerId, avatarConfig) => {
-    if (!containerId || !avatarConfig) return null;
+    if (!containerId || !avatarConfig) {
+      console.warn('[SceneWrapper] initializeAvatar: missing containerId or avatarConfig');
+      return null;
+    }
     if (avatarInstancesRef.current[containerId] && !avatarInstancesRef.current[containerId]._isStopped) {
       return avatarInstancesRef.current[containerId];
     }
@@ -87,7 +90,11 @@ const SceneWrapper = ({ onExitQuiz }) => {
       settings: avatarConfig.settings || {},
     };
 
+    console.log('[SceneWrapper] Initializing avatar:', containerId, 'url:', persona.url,
+      'DOM container:', document.getElementById(`avatar-container-${containerId}`));
+
     const success = await initializeAvatarHandler(containerId, persona, avatarInstancesRef);
+    console.log('[SceneWrapper] initializeAvatarHandler returned:', success, 'instance:', !!avatarInstancesRef.current[containerId]);
     if (success && avatarInstancesRef.current[containerId]) {
       const instance = avatarInstancesRef.current[containerId];
       // Also store by name for speaker lookup during conversation
