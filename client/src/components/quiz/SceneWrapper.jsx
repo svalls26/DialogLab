@@ -89,6 +89,8 @@ const SceneWrapper = ({ onExitQuiz }) => {
       containerElement.style.overflow = 'hidden';
       containerElement.style.display = 'block';
 
+      // Force layout reflow so clientHeight is computed before TalkingHead measures
+      void containerElement.offsetHeight;
       const boxHeight = containerElement.clientHeight || 400;
 
       const TalkingHeadModule = await import('talkinghead');
@@ -200,12 +202,12 @@ const SceneWrapper = ({ onExitQuiz }) => {
     await initializeWebcam();
   }, [scene.boxes]);
 
-  // Initialize scene after entering the quiz
+  // Initialize scene after entering the quiz — use rAF to guarantee browser has painted
   useEffect(() => {
     if (!isSetup) {
       const timer = setTimeout(() => {
-        initializeScene();
-      }, 500);
+        requestAnimationFrame(() => initializeScene());
+      }, 300);
       return () => clearTimeout(timer);
     }
   }, [isSetup, initializeScene]);
@@ -506,9 +508,9 @@ const SceneWrapper = ({ onExitQuiz }) => {
       </header>
 
       {/* Main content */}
-      <div className="flex-1 flex overflow-hidden">
-        {/* Avatar scene area */}
-        <div className="flex-1 relative" ref={sceneContainerRef}>
+      <div className="flex overflow-hidden" style={{ height: 'calc(100vh - 48px)' }}>
+        {/* Avatar scene area — explicit height so TalkingHead gets real pixel dimensions */}
+        <div className="w-[60%] relative" style={{ height: 'calc(100vh - 48px)' }} ref={sceneContainerRef}>
           <div className="w-full h-full relative bg-gray-950">
             {scene.boxes.map((box) => {
               const { id, x, y, width, height, elements } = box;
@@ -600,7 +602,7 @@ const SceneWrapper = ({ onExitQuiz }) => {
         </div>
 
         {/* Chat panel */}
-        <div className="w-[400px] border-l border-gray-700 flex flex-col bg-gray-850" style={{ backgroundColor: '#1a1a2e' }}>
+        <div className="w-[40%] border-l border-gray-700 flex flex-col" style={{ backgroundColor: '#1a1a2e' }}>
           {/* Messages */}
           <div className="flex-1 overflow-y-auto p-3 space-y-2">
             {messages.length === 0 && !conversationComplete && (
