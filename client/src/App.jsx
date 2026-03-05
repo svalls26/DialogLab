@@ -28,7 +28,12 @@ function App() {
       tts: !(localStorage.getItem('TTS_API_KEY')),
     };
     setMissingKeys(nextMissing);
-    setShowKeyModal(nextMissing.openai || nextMissing.gemini || nextMissing.tts);
+    // Skip auto-showing the modal in quiz mode — quiz handles its own key needs
+    const params = new URLSearchParams(window.location.search);
+    const isQuiz = params.get('mode') === 'quiz';
+    if (!isQuiz) {
+      setShowKeyModal(nextMissing.openai || nextMissing.gemini || nextMissing.tts);
+    }
   };
 
   // Sync URL → appMode on mount (safety net for HMR / StrictMode)
@@ -72,7 +77,7 @@ function App() {
         ) : (
           <Home />
         )}
-        {showKeyModal && (
+        {showKeyModal && appMode !== 'quiz' && (
           <ApiKeyModal
             missing={missingKeys}
             provider={provider}
