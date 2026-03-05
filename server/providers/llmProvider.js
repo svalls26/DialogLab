@@ -10,9 +10,11 @@ const PROVIDERS = {
 // Model configurations for each provider
 const MODELS = {
   OPENAI: {
-    DEFAULT: 'gpt-4',
+    DEFAULT: 'gpt-4o',
     GPT35: 'gpt-3.5-turbo',
     GPT4: 'gpt-4',
+    GPT4O: 'gpt-4o',
+    GPT4O_MINI: 'gpt-4o-mini',
     GPT4_TURBO: 'gpt-4-turbo'
   },
   GEMINI: geminiAPI.GEMINI_MODELS
