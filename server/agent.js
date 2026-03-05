@@ -2,20 +2,20 @@ import dotenv from "dotenv";
 import * as llmProvider from "./providers/llmProvider.js";
 dotenv.config();
 
-async function generateDynamicAttributeContext(customAttributes) {
+async function generateDynamicAttributeContext(customAttributes, llmOptions) {
     // Create a list of attribute descriptions to send to the AI.
     const attributeDescriptions = Object.entries(customAttributes)
       .map(([key, value]) => {
         return `${key} is ${value}`;
       })
       .join(", ");
-  
+
     console.log(attributeDescriptions);
-  
+
     const prompt = `Given these attributes of a person - ${attributeDescriptions}. Generate a concise sentence that could be used in a conversation to reflect these attributes contextually, starting from you rather than I .`;
 
     try {
-      return await llmProvider.generateText(prompt, { maxTokens: 75, temperature: 0.7 });
+      return await llmProvider.generateText(prompt, { maxTokens: 75, temperature: 0.7, ...(llmOptions || {}) });
     } catch (error) {
       console.error("Error generating dynamic attribute context:", error);
       return "This agent has unique qualities that enhance our conversation.";
@@ -77,7 +77,7 @@ class Agent {
   
       const attributeContext =
         this.customAttributes && Object.keys(this.customAttributes).length > 0
-          ? await generateDynamicAttributeContext(this.customAttributes)
+          ? await generateDynamicAttributeContext(this.customAttributes, this.llmOptions)
           : "";
   
       let interruptionContext = "";
@@ -197,7 +197,7 @@ class Agent {
   
       try {
         const fullResponse = this.postProcessResponse(
-          await llmProvider.generateText(proactivePrompt, options)
+          await llmProvider.generateText(proactivePrompt, { ...options, ...(this.llmOptions || {}) })
         );
         
         return {
@@ -277,7 +277,7 @@ class Agent {
 
       try {
         const fullResponse = this.postProcessResponse(
-          await llmProvider.generateText(derailPrompt, options)
+          await llmProvider.generateText(derailPrompt, { ...options, ...(this.llmOptions || {}) })
         );
         
         return {
