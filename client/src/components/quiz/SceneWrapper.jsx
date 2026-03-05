@@ -2,6 +2,7 @@ import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react'
 import FlashcardUploader from './FlashcardUploader';
 import { createQuizScene, createQuizConversationConfig } from '../../sceneConfig';
 import { API_CONFIG } from '../../config';
+import { initializeAvatar as initializeAvatarHandler } from '../avatarconfig/utils/AvatarHandler';
 
 const SceneWrapper = ({ onExitQuiz }) => {
   // Setup state
@@ -73,100 +74,35 @@ const SceneWrapper = ({ onExitQuiz }) => {
 
   const initializeAvatar = async (containerId, avatarConfig) => {
     if (!containerId || !avatarConfig) return null;
+    if (avatarInstancesRef.current[containerId] && !avatarInstancesRef.current[containerId]._isStopped) {
+      return avatarInstancesRef.current[containerId];
+    }
 
-    try {
-      if (avatarInstancesRef.current[containerId]) return avatarInstancesRef.current[containerId];
+    // Build the persona object that AvatarHandler expects
+    const persona = {
+      name: avatarConfig.name,
+      url: avatarConfig.url || avatarConfig.settings?.url || '/assets/avatar1.glb',
+      gender: avatarConfig.gender,
+      voice: avatarConfig.voice,
+      settings: avatarConfig.settings || {},
+    };
 
-      const containerElement = document.getElementById(`avatar-container-${containerId}`);
-      if (!containerElement) {
-        console.error(`Avatar container not found: avatar-container-${containerId}`);
-        return null;
+    const success = await initializeAvatarHandler(containerId, persona, avatarInstancesRef);
+    if (success && avatarInstancesRef.current[containerId]) {
+      const instance = avatarInstancesRef.current[containerId];
+      // Also store by name for speaker lookup during conversation
+      if (avatarConfig.name) {
+        avatarInstancesRef.current[avatarConfig.name] = instance;
       }
-
-      containerElement.style.width = '100%';
-      containerElement.style.height = '100%';
-      containerElement.style.position = 'relative';
-      containerElement.style.overflow = 'hidden';
-      containerElement.style.display = 'block';
-
-      // Force layout reflow so clientHeight is computed before TalkingHead measures
-      void containerElement.offsetHeight;
-      const boxHeight = containerElement.clientHeight || 400;
-
-      const TalkingHeadModule = await import('talkinghead');
-      const { TalkingHead } = TalkingHeadModule;
-      if (!TalkingHead) throw new Error('TalkingHead not found in module');
-
-      const avatar = new TalkingHead(containerElement, {
-        height: boxHeight,
-        ttsEndpoint: `${API_CONFIG.BASE_URL}${API_CONFIG.ENDPOINTS.TTS}`,
-        ttsApikey: localStorage.getItem('TTS_API_KEY') || null,
-        lipsyncModules: ['en'],
-      });
-      avatar._isStopped = false;
-
-      const originalStop = avatar.stop;
-      avatar.stop = async function () {
-        const result = await originalStop.apply(this, arguments);
-        this._isStopped = true;
-        return result;
-      };
-
-      if (!avatar.speakText && avatar.speak) {
-        avatar.speakText = function (text) {
+      // Add speakText compatibility if missing
+      if (!instance.speakText && instance.speak) {
+        instance.speakText = function (text) {
           return this.speak({ text, emotionType: 'neutral' });
         };
       }
-
-      if (!avatar.playAudio && avatar.speak) {
-        avatar.playAudio = function (options) {
-          return this.speak({
-            text: options.text || '',
-            audioBase64: options.url,
-            emotionType: options.emotion || 'neutral',
-          });
-        };
-      }
-
-      const avatarUrl = avatarConfig.url || avatarConfig.settings?.url || '/assets/avatar1.glb';
-      const isMale = avatarConfig.gender === 'male';
-
-      await avatar.showAvatar({
-        id: avatarConfig.name,
-        name: avatarConfig.name,
-        url: avatarUrl,
-        body: isMale ? 'M' : 'F',
-        avatarMood: avatarConfig.settings?.mood || 'neutral',
-        ttsLang: avatarConfig.settings?.ttsLang || 'en-GB',
-        ttsVoice: avatarConfig.voice || 'en-GB-Standard-A',
-        lipsyncLang: avatarConfig.settings?.lipsyncLang || 'en',
-        transparent: true,
-      });
-
-      await avatar.setView(avatarConfig.settings?.cameraView || 'upper', {
-        cameraDistance: avatarConfig.settings?.cameraDistance || 0.5,
-        cameraRotateY: avatarConfig.settings?.cameraRotateY || 0,
-      });
-
-      // Ensure TalkingHead canvas elements fill their container
-      const canvasElements = containerElement.querySelectorAll('canvas');
-      canvasElements.forEach((canvas) => {
-        canvas.style.width = '100%';
-        canvas.style.height = '100%';
-        canvas.style.display = 'block';
-        canvas.style.imageRendering = 'auto';
-      });
-
-      avatarInstancesRef.current[containerId] = avatar;
-      if (avatarConfig.name) {
-        avatarInstancesRef.current[avatarConfig.name] = avatar;
-      }
-
-      return avatar;
-    } catch (err) {
-      console.error(`Error initializing avatar ${containerId}:`, err);
-      return null;
+      return instance;
     }
+    return null;
   };
 
   const initializeWebcam = async () => {
