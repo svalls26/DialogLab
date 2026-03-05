@@ -135,6 +135,15 @@ const SceneWrapper = ({ onExitQuiz }) => {
         cameraRotateY: avatarConfig.settings?.cameraRotateY || 0,
       });
 
+      // Ensure TalkingHead canvas elements fill their container
+      const canvasElements = containerElement.querySelectorAll('canvas');
+      canvasElements.forEach((canvas) => {
+        canvas.style.width = '100%';
+        canvas.style.height = '100%';
+        canvas.style.display = 'block';
+        canvas.style.imageRendering = 'auto';
+      });
+
       avatarInstancesRef.current[containerId] = avatar;
       if (avatarConfig.name) {
         avatarInstancesRef.current[avatarConfig.name] = avatar;
