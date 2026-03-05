@@ -10,7 +10,7 @@ const PROVIDERS = {
 // Model configurations for each provider
 const MODELS = {
   OPENAI: {
-    DEFAULT: 'gpt-4o-mini',
+    DEFAULT: 'gpt-5-nano',
     GPT35: 'gpt-3.5-turbo',
     GPT4: 'gpt-4',
     GPT4O: 'gpt-4o',
