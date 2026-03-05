@@ -643,6 +643,11 @@ class ConversationManager {
     const contextualHistory = await this.memory.getContextualHistory();
     console.log(`contextualHistory: ${JSON.stringify(contextualHistory)}`);
     
+    // Propagate per-request LLM options (API key/provider) if present
+    if (this.llmOptions) {
+      agent.llmOptions = this.llmOptions;
+    }
+
     // Get agent's response
     const message = await agent.reply(
       contextualHistory.recentMessages,
