@@ -114,6 +114,10 @@ app.post("/api/start-conversation", async (req, res) => {
       provider: req.headers['x-llm-provider'] || undefined,
       apiKey: req.headers['x-llm-key'] || undefined
     };
+    // Propagate LLM options to conversation memory so it can make LLM calls
+    if (conversationManager.memory) {
+      conversationManager.memory.llmOptions = conversationManager.llmOptions;
+    }
     console.log(`ConversationManager created with ${config.maxTurns || 6} maxTurns with conversationMemory`, conversationMemory);
 
     conversationManager.onMessageGenerated = (message) => {

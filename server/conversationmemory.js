@@ -31,6 +31,7 @@ class ConversationMemory {
       this.lastSummaryIndex = 0;
       this.coveredPoints = new Set();  // Track points that have been discussed
       this.analogiesUsed = new Set();  // Track analogies that have been used
+      this.llmOptions = null; // Per-request LLM options (provider, apiKey)
     }
   
     async generateSummary(messages) {
@@ -49,7 +50,7 @@ class ConversationMemory {
   Format your response as clear, concise bullet points.`;
   
       try {
-        return await llmProvider.generateText(prompt, { maxTokens: 150, temperature: 0.7 });
+        return await llmProvider.generateText(prompt, { maxTokens: 150, temperature: 0.7, ...(this.llmOptions || {}) });
       } catch (error) {
         console.error("Error generating summary:", error);
         return "Error generating summary";
@@ -97,10 +98,11 @@ class ConversationMemory {
   
       try {
         // Use the requestJson option to ensure we get proper JSON formatting
-        const rawResponse = await llmProvider.generateText(prompt, { 
-          maxTokens: 150, 
+        const rawResponse = await llmProvider.generateText(prompt, {
+          maxTokens: 150,
           temperature: 0.7,
-          requestJson: true 
+          requestJson: true,
+          ...(this.llmOptions || {})
         });
         
         // Clean the response as a backup in case requestJson option wasn't effective
@@ -165,7 +167,7 @@ class ConversationMemory {
       Your summary should be brief but informative, focusing on the main ideas discussed.`;
       
       try {
-        return await llmProvider.generateText(prompt, { maxTokens: 100, temperature: 0.7 });
+        return await llmProvider.generateText(prompt, { maxTokens: 100, temperature: 0.7, ...(this.llmOptions || {}) });
       } catch (error) {
         console.error("Error generating recent messages summary:", error);
         // Fallback to a simple list if summarization fails
