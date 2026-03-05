@@ -643,8 +643,7 @@ class ConversationManager {
     
     // Set up for agent reply
     const options = {
-      maxTokens: 150,
-      temperature: 0.8
+      maxTokens: 500,
     };
     
     // Add content prompt if available
