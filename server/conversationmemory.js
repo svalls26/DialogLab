@@ -104,9 +104,16 @@ class ConversationMemory {
           ...(this.llmOptions || {})
         });
         
+        // Guard against empty or whitespace-only LLM responses
+        if (!rawResponse || !rawResponse.trim()) {
+          console.warn("LLM returned empty response for tracking — skipping");
+          this.coveredPoints.add(`Message: ${message.message.substring(0, 30)}...`);
+          return;
+        }
+
         // Clean the response as a backup in case requestJson option wasn't effective
         const cleanedResponse = extractJsonFromText(rawResponse);
-        
+
         try {
           // Try to parse the raw response first
           let analysis;
