@@ -2,7 +2,7 @@ import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react'
 import FlashcardUploader from './FlashcardUploader';
 import { createQuizScene, createQuizConversationConfig } from '../../sceneConfig';
 import { API_CONFIG } from '../../config';
-import { initializeAvatar as initializeAvatarHandler } from '../avatarconfig/utils/AvatarHandler';
+import { initializeAvatar as initializeAvatarHandler, isWebGLAvailable } from '../avatarconfig/utils/AvatarHandler';
 
 const SceneWrapper = ({ onExitQuiz }) => {
   // Setup state
@@ -11,6 +11,7 @@ const SceneWrapper = ({ onExitQuiz }) => {
   const [examinerName, setExaminerName] = useState('Alice');
   const [maxTurns, setMaxTurns] = useState(50);
   const [isSetup, setIsSetup] = useState(true);
+  const [avatarFailed, setAvatarFailed] = useState(false);
 
   // Conversation state
   const [messages, setMessages] = useState([]);
@@ -95,6 +96,9 @@ const SceneWrapper = ({ onExitQuiz }) => {
 
     const success = await initializeAvatarHandler(containerId, persona, avatarInstancesRef);
     console.log('[SceneWrapper] initializeAvatarHandler returned:', success, 'instance:', !!avatarInstancesRef.current[containerId]);
+    if (!success) {
+      setAvatarFailed(true);
+    }
     if (success && avatarInstancesRef.current[containerId]) {
       const instance = avatarInstancesRef.current[containerId];
       // Also store by name for speaker lookup during conversation
@@ -323,6 +327,7 @@ const SceneWrapper = ({ onExitQuiz }) => {
     setMessages([]);
     setConversationComplete(false);
     setError('');
+    setAvatarFailed(false);
     setScore({ correct: 0, incorrect: 0, total: 0 });
   };
 
@@ -478,19 +483,57 @@ const SceneWrapper = ({ onExitQuiz }) => {
                           key={element.id}
                           className="w-full h-full relative"
                         >
+                          {/* 3D avatar container (hidden when WebGL unavailable) */}
                           <div
                             id={`avatar-container-${element.id}`}
                             style={{
                               width: '100%',
                               height: '100%',
                               position: 'relative',
-                              display: 'block',
+                              display: avatarFailed ? 'none' : 'block',
                               overflow: 'hidden',
                               border: isSpeaking ? '2px solid #3b82f6' : '1px solid rgba(255,255,255,0.1)',
                               borderRadius: '8px',
                               transition: 'border-color 0.3s',
                             }}
                           />
+                          {/* Fallback placeholder when avatar can't render */}
+                          {avatarFailed && (
+                            <div
+                              style={{
+                                width: '100%',
+                                height: '100%',
+                                display: 'flex',
+                                flexDirection: 'column',
+                                alignItems: 'center',
+                                justifyContent: 'center',
+                                backgroundColor: '#1e293b',
+                                border: isSpeaking ? '2px solid #3b82f6' : '1px solid rgba(255,255,255,0.1)',
+                                borderRadius: '8px',
+                                transition: 'border-color 0.3s',
+                              }}
+                            >
+                              <div style={{
+                                width: '80px',
+                                height: '80px',
+                                borderRadius: '50%',
+                                backgroundColor: '#334155',
+                                display: 'flex',
+                                alignItems: 'center',
+                                justifyContent: 'center',
+                                fontSize: '36px',
+                                marginBottom: '8px',
+                              }}>
+                                {element.avatarData.gender === 'male' ? '\u{1F468}' : '\u{1F469}'}
+                              </div>
+                              <span style={{ color: '#94a3b8', fontSize: '12px' }}>
+                                3D avatar unavailable
+                              </span>
+                              <span style={{ color: '#64748b', fontSize: '10px', marginTop: '2px' }}>
+                                WebGL not supported
+                              </span>
+                            </div>
+                          )}
                           <div className="absolute bottom-2 left-0 right-0 text-center">
                             <span className={`px-2 py-0.5 rounded text-xs ${
                               isSpeaking ? 'bg-blue-600 text-white' : 'bg-black bg-opacity-60 text-gray-300'

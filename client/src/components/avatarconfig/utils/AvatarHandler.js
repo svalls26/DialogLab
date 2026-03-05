@@ -1,5 +1,16 @@
 import API_CONFIG from '../../../config';
 
+// Check if WebGL is available in the current browser
+export const isWebGLAvailable = () => {
+  try {
+    const canvas = document.createElement('canvas');
+    const gl = canvas.getContext('webgl2') || canvas.getContext('webgl') || canvas.getContext('experimental-webgl');
+    return !!gl;
+  } catch (e) {
+    return false;
+  }
+};
+
 // Get default voice based on gender
 export const getDefaultVoiceByGender = (persona) => {
   // If a voice is already specified, use it
@@ -73,6 +84,12 @@ export const initializeAvatar = async (boxId, persona, avatarInstancesRef) => {
 
   if (!persona || !persona.url) {
     console.error("Invalid model URL for persona:", persona);
+    return false;
+  }
+
+  // Check WebGL availability before attempting 3D rendering
+  if (!isWebGLAvailable()) {
+    console.warn("WebGL is not available. Avatar 3D rendering is disabled. The quiz will continue without the avatar.");
     return false;
   }
 
