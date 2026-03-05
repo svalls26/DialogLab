@@ -10,13 +10,12 @@ const PROVIDERS = {
 // Model configurations for each provider
 const MODELS = {
   OPENAI: {
-    DEFAULT: 'gpt-5-mini',
+    DEFAULT: 'gpt-5-nano',
     GPT35: 'gpt-3.5-turbo',
     GPT4: 'gpt-4',
     GPT4O: 'gpt-4o',
     GPT4O_MINI: 'gpt-4o-mini',
     GPT4_TURBO: 'gpt-4-turbo',
-    GPT5_MINI: 'gpt-5-mini'
   },
   GEMINI: geminiAPI.GEMINI_MODELS
 };
@@ -129,7 +128,7 @@ async function generateText(prompt, options = {}) {
 
       return response.data.choices[0].message.content.trim();
     } catch (error) {
-      console.error("Error calling OpenAI API:", error);
+      console.error("Error calling OpenAI API:", error?.response?.data || error.message);
       throw error;
     }
   }
@@ -173,7 +172,7 @@ async function chatCompletion(messages, options = {}) {
 
       return response.data.choices[0].message.content.trim();
     } catch (error) {
-      console.error("Error calling OpenAI API:", error);
+      console.error("Error calling OpenAI API:", error?.response?.data || error.message);
       throw error;
     }
   }
