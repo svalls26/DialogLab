@@ -87,6 +87,7 @@ const SceneWrapper = ({ onExitQuiz }) => {
       containerElement.style.height = '100%';
       containerElement.style.position = 'relative';
       containerElement.style.overflow = 'hidden';
+      containerElement.style.display = 'block';
 
       const boxHeight = containerElement.clientHeight || 400;
 
@@ -112,6 +113,16 @@ const SceneWrapper = ({ onExitQuiz }) => {
       if (!avatar.speakText && avatar.speak) {
         avatar.speakText = function (text) {
           return this.speak({ text, emotionType: 'neutral' });
+        };
+      }
+
+      if (!avatar.playAudio && avatar.speak) {
+        avatar.playAudio = function (options) {
+          return this.speak({
+            text: options.text || '',
+            audioBase64: options.url,
+            emotionType: options.emotion || 'neutral',
+          });
         };
       }
 
