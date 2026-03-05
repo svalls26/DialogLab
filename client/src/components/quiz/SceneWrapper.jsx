@@ -1,19 +1,8 @@
-import React, { useState, useEffect, useRef, useCallback } from 'react';
+import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import FlashcardUploader from './FlashcardUploader';
 import { createQuizScene, createQuizConversationConfig } from '../../sceneConfig';
 import { API_CONFIG } from '../../config';
 
-/**
- * SceneWrapper is the main quiz experience component.
- * It bypasses the full DialogLab authoring UI and provides a streamlined
- * interface for oral exam preparation, interviews, and flashcard quizzes.
- *
- * The component:
- * 1. Shows a setup panel where users configure the quiz and upload flashcards
- * 2. Preloads a scene with an examiner avatar and a student (human proxy)
- * 3. Starts a conversation where the examiner asks flashcard questions
- * 4. The user responds via text input (human proxy mode)
- */
 const SceneWrapper = ({ onExitQuiz }) => {
   // Setup state
   const [flashcards, setFlashcards] = useState([]);
@@ -31,8 +20,10 @@ const SceneWrapper = ({ onExitQuiz }) => {
   const [conversationComplete, setConversationComplete] = useState(false);
   const [error, setError] = useState('');
 
-  // Avatar state
-  const [avatarInstances, setAvatarInstances] = useState({});
+  // Refs
+  const avatarInstancesRef = useRef({});
+  const webcamStreamRef = useRef(null);
+  const webcamVideoRef = useRef(null);
   const sceneContainerRef = useRef(null);
   const messagesEndRef = useRef(null);
   const abortControllerRef = useRef(null);
@@ -40,6 +31,13 @@ const SceneWrapper = ({ onExitQuiz }) => {
 
   // Score tracking
   const [score, setScore] = useState({ correct: 0, incorrect: 0, total: 0 });
+
+  // Memoize the scene so it doesn't get recreated on every render
+  const scene = useMemo(() => createQuizScene({
+    examinerName,
+    studentName: 'You',
+    topic,
+  }), [examinerName, topic]);
 
   // Scroll to bottom of messages
   useEffect(() => {
@@ -59,39 +57,42 @@ const SceneWrapper = ({ onExitQuiz }) => {
       if (abortControllerRef.current) {
         abortControllerRef.current.abort();
       }
-      Object.values(avatarInstances).forEach(instance => {
+      // Stop all avatar instances
+      Object.values(avatarInstancesRef.current).forEach(instance => {
         if (instance && typeof instance.stop === 'function') {
           try { instance.stop(); } catch (e) { /* ignore */ }
         }
       });
+      // Stop webcam stream
+      if (webcamStreamRef.current) {
+        webcamStreamRef.current.getTracks().forEach(track => track.stop());
+        webcamStreamRef.current = null;
+      }
     };
-  }, [avatarInstances]);
+  }, []);
 
-  const scene = createQuizScene({
-    examinerName,
-    studentName: 'You',
-    topic,
-  });
-
-  const initializeAvatar = async (containerId, avatarConfig, instances) => {
+  const initializeAvatar = async (containerId, avatarConfig) => {
     if (!containerId || !avatarConfig) return null;
 
     try {
-      if (instances[containerId]) return instances[containerId];
+      if (avatarInstancesRef.current[containerId]) return avatarInstancesRef.current[containerId];
 
       const containerElement = document.getElementById(`avatar-container-${containerId}`);
-      if (!containerElement) return null;
+      if (!containerElement) {
+        console.error(`Avatar container not found: avatar-container-${containerId}`);
+        return null;
+      }
 
       containerElement.style.width = '100%';
       containerElement.style.height = '100%';
       containerElement.style.position = 'relative';
       containerElement.style.overflow = 'hidden';
 
-      const boxHeight = containerElement.clientHeight || 300;
+      const boxHeight = containerElement.clientHeight || 400;
 
       const TalkingHeadModule = await import('talkinghead');
       const { TalkingHead } = TalkingHeadModule;
-      if (!TalkingHead) throw new Error('TalkingHead not found');
+      if (!TalkingHead) throw new Error('TalkingHead not found in module');
 
       const avatar = new TalkingHead(containerElement, {
         height: boxHeight,
@@ -114,12 +115,13 @@ const SceneWrapper = ({ onExitQuiz }) => {
         };
       }
 
+      const avatarUrl = avatarConfig.url || avatarConfig.settings?.url || '/assets/avatar1.glb';
       const isMale = avatarConfig.gender === 'male';
 
       await avatar.showAvatar({
         id: avatarConfig.name,
         name: avatarConfig.name,
-        url: avatarConfig.url || avatarConfig.settings?.url || '/assets/avatar1.glb',
+        url: avatarUrl,
         body: isMale ? 'M' : 'F',
         avatarMood: avatarConfig.settings?.mood || 'neutral',
         ttsLang: avatarConfig.settings?.ttsLang || 'en-GB',
@@ -133,9 +135,9 @@ const SceneWrapper = ({ onExitQuiz }) => {
         cameraRotateY: avatarConfig.settings?.cameraRotateY || 0,
       });
 
-      instances[containerId] = avatar;
+      avatarInstancesRef.current[containerId] = avatar;
       if (avatarConfig.name) {
-        instances[avatarConfig.name] = avatar;
+        avatarInstancesRef.current[avatarConfig.name] = avatar;
       }
 
       return avatar;
@@ -145,30 +147,48 @@ const SceneWrapper = ({ onExitQuiz }) => {
     }
   };
 
-  const initializeAvatars = useCallback(async () => {
-    const instances = {};
+  const initializeWebcam = async () => {
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({
+        video: true,
+        audio: true,
+      });
+      webcamStreamRef.current = stream;
+
+      // Attach stream to the video element
+      if (webcamVideoRef.current) {
+        webcamVideoRef.current.srcObject = stream;
+      }
+    } catch (err) {
+      console.error('Error accessing webcam:', err);
+      setError('Could not access camera/microphone. Please check permissions.');
+    }
+  };
+
+  const initializeScene = useCallback(async () => {
+    // Initialize avatars
     for (const box of scene.boxes) {
       if (box.elements) {
         for (const element of box.elements) {
           if (element.elementType === 'avatar' && element.avatarData) {
-            await initializeAvatar(element.id, element.avatarData, instances);
+            await initializeAvatar(element.id, element.avatarData);
           }
         }
       }
     }
-    setAvatarInstances(instances);
+    // Initialize webcam
+    await initializeWebcam();
   }, [scene.boxes]);
 
-  // Initialize avatars after entering the quiz
+  // Initialize scene after entering the quiz
   useEffect(() => {
     if (!isSetup) {
-      // Give DOM time to render before initializing avatars
       const timer = setTimeout(() => {
-        initializeAvatars();
+        initializeScene();
       }, 500);
       return () => clearTimeout(timer);
     }
-  }, [isSetup]);
+  }, [isSetup, initializeScene]);
 
   const startQuiz = async () => {
     if (flashcards.length === 0) {
@@ -182,7 +202,7 @@ const SceneWrapper = ({ onExitQuiz }) => {
     setConversationComplete(false);
     setScore({ correct: 0, incorrect: 0, total: 0 });
 
-    // Start conversation after a delay to let avatars initialize
+    // Start conversation after a delay to let scene initialize
     setTimeout(() => {
       startConversation();
     }, 1500);
@@ -204,6 +224,10 @@ const SceneWrapper = ({ onExitQuiz }) => {
         ? localStorage.getItem('OPENAI_API_KEY')
         : localStorage.getItem('GEMINI_API_KEY');
 
+      if (!key) {
+        throw new Error(`No API key found for provider "${provider}". Please set your key in the Keys modal.`);
+      }
+
       const response = await fetch(
         `${API_CONFIG.BASE_URL}${API_CONFIG.ENDPOINTS.START_CONVERSATION}`,
         {
@@ -211,7 +235,7 @@ const SceneWrapper = ({ onExitQuiz }) => {
           headers: {
             'Content-Type': 'application/json',
             'x-llm-provider': provider,
-            'x-llm-key': key || '',
+            'x-llm-key': key,
           },
           body: JSON.stringify(config),
           signal: abortControllerRef.current.signal,
@@ -246,15 +270,13 @@ const SceneWrapper = ({ onExitQuiz }) => {
               }]);
               setCurrentSpeaker(msg.sender);
 
-              // Make avatar speak
-              if (msg.sender && avatarInstances[msg.sender]) {
-                const avatar = avatarInstances[msg.sender];
-                if (avatar && typeof avatar.speakText === 'function') {
-                  try {
-                    avatar.speakText(msg.message || '');
-                  } catch (e) {
-                    console.error('Error making avatar speak:', e);
-                  }
+              // Make avatar speak (use ref to get latest instance)
+              const avatar = avatarInstancesRef.current[msg.sender];
+              if (avatar && typeof avatar.speakText === 'function') {
+                try {
+                  avatar.speakText(msg.message || '');
+                } catch (e) {
+                  console.error('Error making avatar speak:', e);
                 }
               }
             } else if (data.type === 'human_input_required') {
@@ -316,10 +338,22 @@ const SceneWrapper = ({ onExitQuiz }) => {
     setIsPlaying(false);
     setWaitingForInput(false);
     setConversationComplete(true);
+    // Stop webcam
+    if (webcamStreamRef.current) {
+      webcamStreamRef.current.getTracks().forEach(track => track.stop());
+      webcamStreamRef.current = null;
+    }
   };
 
   const resetQuiz = () => {
     stopQuiz();
+    // Stop avatar instances
+    Object.values(avatarInstancesRef.current).forEach(instance => {
+      if (instance && typeof instance.stop === 'function') {
+        try { instance.stop(); } catch (e) { /* ignore */ }
+      }
+    });
+    avatarInstancesRef.current = {};
     setIsSetup(true);
     setMessages([]);
     setConversationComplete(false);
@@ -499,6 +533,34 @@ const SceneWrapper = ({ onExitQuiz }) => {
                         </div>
                       );
                     }
+
+                    if (element.elementType === 'webcam') {
+                      return (
+                        <div
+                          key={element.id}
+                          className="w-full h-full relative"
+                        >
+                          <video
+                            ref={webcamVideoRef}
+                            autoPlay
+                            playsInline
+                            muted
+                            className="w-full h-full object-cover"
+                            style={{
+                              borderRadius: '8px',
+                              border: '1px solid rgba(255,255,255,0.1)',
+                              transform: 'scaleX(-1)',
+                            }}
+                          />
+                          <div className="absolute bottom-2 left-0 right-0 text-center">
+                            <span className="px-2 py-0.5 rounded text-xs bg-black bg-opacity-60 text-gray-300">
+                              {element.name || 'You'}
+                            </span>
+                          </div>
+                        </div>
+                      );
+                    }
+
                     return null;
                   })}
                 </div>

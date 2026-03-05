@@ -24,8 +24,18 @@ export function createQuizScene(options = {}) {
     backgroundImage = null,
   } = options;
 
+  // Map examiner names to avatar configuration
+  const EXAMINER_PRESETS = {
+    Alice:  { gender: 'female', url: '/assets/female-avatar1.glb', body: 'F', voice: 'en-GB-Standard-A' },
+    Grace:  { gender: 'female', url: '/assets/female-avatar2.glb', body: 'F', voice: 'en-GB-Standard-C' },
+    Bob:    { gender: 'male',   url: '/assets/male-avatar1.glb',   body: 'M', voice: 'en-GB-Standard-B' },
+    David:  { gender: 'male',   url: '/assets/male-avatar2.glb',   body: 'M', voice: 'en-US-Standard-B' },
+    Henry:  { gender: 'male',   url: '/assets/male-avatar3.glb',   body: 'M', voice: 'en-US-Standard-D' },
+  };
+
+  const preset = EXAMINER_PRESETS[examinerName] || EXAMINER_PRESETS.Alice;
   const examinerElementId = 'examiner-avatar-1';
-  const studentElementId = 'student-avatar-1';
+  const studentElementId = 'student-webcam-1';
 
   return {
     id: QUIZ_SCENE_ID,
@@ -50,25 +60,21 @@ export function createQuizScene(options = {}) {
             avatarData: {
               id: examinerElementId,
               name: examinerName,
-              gender: 'female',
-              voice: 'en-GB-Standard-A',
+              gender: preset.gender,
+              voice: preset.voice,
               personality: 'professional and encouraging examiner',
               roleDescription: 'You are an examiner conducting an oral quiz. Ask questions from the provided flashcards one at a time. After the student answers, provide brief feedback on whether the answer is correct, then move on to the next question.',
               settings: {
-                url: '/assets/female-avatar1.glb',
-                body: 'F',
+                url: preset.url,
+                body: preset.body,
                 cameraView: 'upper',
                 cameraDistance: 0.5,
                 cameraRotateY: 0,
                 mood: 'neutral',
                 ttsLang: 'en-GB',
                 lipsyncLang: 'en',
-                content: null,
-                contentName: null,
-                contentType: null,
-                contentUrl: null,
               },
-              url: '/assets/female-avatar1.glb',
+              url: preset.url,
             },
           },
         ],
@@ -86,30 +92,8 @@ export function createQuizScene(options = {}) {
         elements: [
           {
             id: studentElementId,
-            elementType: 'avatar',
-            avatarData: {
-              id: studentElementId,
-              name: studentName,
-              gender: 'male',
-              voice: 'en-US-Standard-B',
-              personality: 'student',
-              roleDescription: 'Student answering quiz questions',
-              settings: {
-                url: '/assets/male-avatar1.glb',
-                body: 'M',
-                cameraView: 'upper',
-                cameraDistance: 0.5,
-                cameraRotateY: 0,
-                mood: 'neutral',
-                ttsLang: 'en-US',
-                lipsyncLang: 'en',
-                content: null,
-                contentName: null,
-                contentType: null,
-                contentUrl: null,
-              },
-              url: '/assets/male-avatar1.glb',
-            },
+            elementType: 'webcam',
+            name: studentName,
           },
         ],
       },
