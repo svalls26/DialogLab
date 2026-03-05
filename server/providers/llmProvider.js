@@ -115,7 +115,7 @@ async function generateText(prompt, options = {}) {
         {
           model: options.model || defaultOpenAIModel,
           messages: [{ role: "user", content: prompt }],
-          max_completion_tokens: options.maxTokens || 150,
+          max_completion_tokens: options.maxTokens || 800,
         },
         {
           headers: {
@@ -158,7 +158,7 @@ async function chatCompletion(messages, options = {}) {
         {
           model: options.model || defaultOpenAIModel,
           messages: messages,
-          max_completion_tokens: options.maxTokens || 150,
+          max_completion_tokens: options.maxTokens || 800,
         },
         {
           headers: {

@@ -99,8 +99,7 @@ class ConversationMemory {
       try {
         // Use the requestJson option to ensure we get proper JSON formatting
         const rawResponse = await llmProvider.generateText(prompt, {
-          maxTokens: 150,
-          temperature: 0.7,
+          maxTokens: 300,
           requestJson: true,
           ...(this.llmOptions || {})
         });

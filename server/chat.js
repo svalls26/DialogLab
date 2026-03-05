@@ -316,6 +316,22 @@ class ConversationManager {
     return true;
   }
 
+  provideHumanInput(speaker, input) {
+    const message = {
+      sender: speaker,
+      message: input,
+      recipient: 'All',
+      isHumanInput: true
+    };
+
+    this.updateConversation(message);
+    this.currentTurn++;
+
+    // Resume conversation with the human as lastSpeaker
+    const participants = this.agents.map(a => a.name);
+    this.continueConversation(participants, speaker);
+  }
+
   setAgentAsHumanProxy(name) {
     const agent = this.agents.find((a) => a.name === name);
     if (agent) {
@@ -627,8 +643,7 @@ class ConversationManager {
     
     // Set up for agent reply
     const options = {
-      maxTokens: 150,
-      temperature: 0.8
+      maxTokens: 500,
     };
     
     // Add content prompt if available

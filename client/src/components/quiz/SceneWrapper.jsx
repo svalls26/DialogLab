@@ -143,7 +143,7 @@ const SceneWrapper = ({ onExitQuiz }) => {
     if (!isSetup) {
       const timer = setTimeout(() => {
         requestAnimationFrame(() => initializeScene());
-      }, 300);
+      }, 800);
       return () => clearTimeout(timer);
     }
   }, [isSetup, initializeScene]);
@@ -473,8 +473,12 @@ const SceneWrapper = ({ onExitQuiz }) => {
                         >
                           <div
                             id={`avatar-container-${element.id}`}
-                            className="w-full h-full"
                             style={{
+                              width: '100%',
+                              height: '100%',
+                              position: 'relative',
+                              display: 'block',
+                              overflow: 'hidden',
                               border: isSpeaking ? '2px solid #3b82f6' : '1px solid rgba(255,255,255,0.1)',
                               borderRadius: '8px',
                               transition: 'border-color 0.3s',
