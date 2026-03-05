@@ -13,9 +13,10 @@ function App() {
   const [provider, setProvider] = useState('gemini');
 
   // Check URL for quiz mode: ?mode=quiz
-  const urlParams = new URLSearchParams(window.location.search);
-  const initialMode = urlParams.get('mode');
-  const [appMode, setAppMode] = useState(initialMode === 'quiz' ? 'quiz' : 'authoring');
+  const [appMode, setAppMode] = useState(() => {
+    const params = new URLSearchParams(window.location.search);
+    return params.get('mode') === 'quiz' ? 'quiz' : 'authoring';
+  });
 
   const refreshStatus = async () => {
     // Compute missing keys locally (per-user)
@@ -29,6 +30,14 @@ function App() {
     setMissingKeys(nextMissing);
     setShowKeyModal(nextMissing.openai || nextMissing.gemini || nextMissing.tts);
   };
+
+  // Sync URL → appMode on mount (safety net for HMR / StrictMode)
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    if (params.get('mode') === 'quiz') {
+      setAppMode('quiz');
+    }
+  }, []);
 
   useEffect(() => {
     refreshStatus();
