@@ -30,6 +30,8 @@ export const API_CONFIG = {
     GENERATE_CONVERSATION_PROMPT: '/api/generate-conversation-prompt',
     CONTENT_UPLOAD: '/api/content/upload',
     CONTENT_LIST: '/api/content/list',
+    QUIZ_PREPARE: '/api/quiz/prepare',
+    HUMAN_INPUT: '/api/human-input',
   }
 };
 

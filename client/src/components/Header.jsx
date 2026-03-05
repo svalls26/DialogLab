@@ -214,6 +214,19 @@ const Header = ({ mode, setMode, onOpenKeys }) => {
             </svg>
             <span>Verification</span>
           </button>
+          <button
+            className="flex items-center gap-1.5 px-4 py-1.5 rounded-md text-sm font-medium transition-colors bg-purple-50 text-purple-700 hover:bg-purple-100"
+            onClick={() => {
+              window.dispatchEvent(new CustomEvent('enter-quiz-mode'));
+            }}
+          >
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" className="text-purple-600">
+              <path d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2" />
+              <rect x="9" y="3" width="6" height="4" rx="1" />
+              <path d="M9 14l2 2 4-4" />
+            </svg>
+            <span>Quiz</span>
+          </button>
         </div>
 
         {/* Right section - ml-auto pushes it to the right */}
