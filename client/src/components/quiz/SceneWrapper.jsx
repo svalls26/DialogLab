@@ -24,12 +24,22 @@ const waitForSpeechEnd = (avatar, timeoutMs = 90000) =>
  * Falls back to browser Web Speech API if TalkingHead hasn't started speaking
  * within 1.5 s (e.g. no TTS API key configured).
  * Returns a Promise that resolves when speech finishes.
+ *
+ * @param {object} avatar   TalkingHead instance
+ * @param {string} text     Text to speak
+ * @param {string} lang     BCP-47 language tag, e.g. 'en-GB'
+ * @param {string} [voice]  Google TTS voice name, e.g. 'en-GB-Standard-A'
  */
-const speakAsAvatar = async (avatar, text, lang = 'en-GB') => {
+const speakAsAvatar = async (avatar, text, lang = 'en-GB', voice = null) => {
   if (!avatar) return;
 
   try {
-    avatar.speakText(text);
+    // Pass voice options explicitly so TalkingHead uses the correct Google TTS
+    // voice even if this.avatar.ttsVoice was somehow not set via showAvatar().
+    const ttsOpt = {};
+    if (lang)  ttsOpt.ttsLang  = lang;
+    if (voice) ttsOpt.ttsVoice = voice;
+    avatar.speakText(text, Object.keys(ttsOpt).length ? ttsOpt : null);
     // Give TalkingHead time to contact the TTS endpoint and start playing
     await new Promise((r) => setTimeout(r, 1500));
     if (avatar.isSpeaking) {
@@ -47,6 +57,15 @@ const speakAsAvatar = async (avatar, text, lang = 'en-GB') => {
       const utter = new SpeechSynthesisUtterance(text);
       utter.lang = lang;
       utter.rate = 0.9;
+
+      // Prefer a female voice in the fallback when one is available
+      const voices = window.speechSynthesis.getVoices();
+      const femaleVoice =
+        voices.find((v) => v.lang.startsWith(lang.split('-')[0]) && /female|woman|girl/i.test(v.name)) ||
+        voices.find((v) => v.lang === lang) ||
+        null;
+      if (femaleVoice) utter.voice = femaleVoice;
+
       utter.onend = resolve;
       utter.onerror = resolve;
       window.speechSynthesis.speak(utter);
@@ -293,6 +312,10 @@ const SceneWrapper = ({ onExitQuiz }) => {
         canvas.style.imageRendering = 'auto';
       });
 
+      // Attach voice settings for later use in speakAsAvatar()
+      instance._ttsVoice = avatarConfig.voice || getDefaultVoiceByGender({ gender: avatarConfig.gender, voice: avatarConfig.voice });
+      instance._ttsLang  = avatarConfig.settings?.ttsLang || 'en-GB';
+
       // Store by element ID and by name for speaker lookup
       avatarInstancesRef.current[containerId] = instance;
       if (avatarConfig.name) {
@@ -441,7 +464,8 @@ const SceneWrapper = ({ onExitQuiz }) => {
                 currentSpeechRef.current = speakAsAvatar(
                   avatar,
                   msg.message || '',
-                  'en-GB'
+                  avatar._ttsLang  || 'en-GB',
+                  avatar._ttsVoice || null
                 );
               }
             } else if (data.type === 'human_input_required') {
