@@ -4,6 +4,58 @@ import { createQuizScene, createQuizConversationConfig } from '../../sceneConfig
 import { API_CONFIG } from '../../config';
 import { getDefaultVoiceByGender } from '../avatarconfig/utils/AvatarHandler';
 
+// ─── Speech helpers (module-level, no React deps) ────────────────────────────
+
+/** Poll until TalkingHead stops speaking, or timeout. */
+const waitForSpeechEnd = (avatar, timeoutMs = 90000) =>
+  new Promise((resolve) => {
+    if (!avatar || !avatar.isSpeaking) { resolve(); return; }
+    const start = Date.now();
+    const id = setInterval(() => {
+      if (!avatar.isSpeaking || Date.now() - start > timeoutMs) {
+        clearInterval(id);
+        resolve();
+      }
+    }, 150);
+  });
+
+/**
+ * Speak text through TalkingHead (Google TTS + lip-sync).
+ * Falls back to browser Web Speech API if TalkingHead hasn't started speaking
+ * within 1.5 s (e.g. no TTS API key configured).
+ * Returns a Promise that resolves when speech finishes.
+ */
+const speakAsAvatar = async (avatar, text, lang = 'en-GB') => {
+  if (!avatar) return;
+
+  try {
+    avatar.speakText(text);
+    // Give TalkingHead time to contact the TTS endpoint and start playing
+    await new Promise((r) => setTimeout(r, 1500));
+    if (avatar.isSpeaking) {
+      await waitForSpeechEnd(avatar);
+      return;
+    }
+  } catch (e) {
+    console.warn('[speakAsAvatar] TalkingHead speakText error:', e);
+  }
+
+  // Fallback: browser Web Speech API (no API key required)
+  if ('speechSynthesis' in window) {
+    await new Promise((resolve) => {
+      window.speechSynthesis.cancel();
+      const utter = new SpeechSynthesisUtterance(text);
+      utter.lang = lang;
+      utter.rate = 0.9;
+      utter.onend = resolve;
+      utter.onerror = resolve;
+      window.speechSynthesis.speak(utter);
+    });
+  }
+};
+
+// ─────────────────────────────────────────────────────────────────────────────
+
 const SceneWrapper = ({ onExitQuiz }) => {
   // Setup state
   const [flashcards, setFlashcards] = useState([]);
@@ -25,6 +77,7 @@ const SceneWrapper = ({ onExitQuiz }) => {
 
   // Refs
   const avatarInstancesRef = useRef({});
+  const currentSpeechRef = useRef(null);  // Promise of the avatar's current speech
   const webcamStreamRef = useRef(null);
   const webcamVideoRef = useRef(null);
   const sceneContainerRef = useRef(null);
@@ -381,19 +434,30 @@ const SceneWrapper = ({ onExitQuiz }) => {
               }]);
               setCurrentSpeaker(msg.sender);
 
-              // Make avatar speak (use ref to get latest instance)
+              // Fire avatar speech — store the promise so we can await it
+              // before revealing the user input field.
               const avatar = avatarInstancesRef.current[msg.sender];
-              if (avatar && typeof avatar.speakText === 'function') {
-                try {
-                  avatar.speakText(msg.message || '');
-                } catch (e) {
-                  console.error('Error making avatar speak:', e);
-                }
+              if (avatar) {
+                currentSpeechRef.current = speakAsAvatar(
+                  avatar,
+                  msg.message || '',
+                  'en-GB'
+                );
               }
             } else if (data.type === 'human_input_required') {
+              // Wait for Alice to finish speaking before showing the input field.
+              // This gives the user time to listen before being prompted to type.
+              if (currentSpeechRef.current) {
+                await currentSpeechRef.current;
+                currentSpeechRef.current = null;
+              }
               setWaitingForInput(true);
               setCurrentSpeaker(data.speaker);
             } else if (data.type === 'completion') {
+              if (currentSpeechRef.current) {
+                await currentSpeechRef.current;
+                currentSpeechRef.current = null;
+              }
               setConversationComplete(true);
               setIsPlaying(false);
             }
@@ -722,34 +786,56 @@ const SceneWrapper = ({ onExitQuiz }) => {
           </div>
         </div>
 
-        {/* Chat panel */}
-        <div className="w-[40%] border-l border-gray-700 flex flex-col" style={{ backgroundColor: '#1a1a2e' }}>
-          {/* Messages */}
-          <div className="flex-1 overflow-y-auto p-3 space-y-2">
+        {/* Transcript panel */}
+        <div className="w-[40%] border-l border-gray-700 flex flex-col" style={{ backgroundColor: '#0f1117' }}>
+          {/* Panel header */}
+          <div className="px-4 py-2 border-b border-gray-700 flex items-center gap-2 shrink-0">
+            <span className="text-xs font-semibold text-gray-400 uppercase tracking-wider">Interview Transcript</span>
+            {currentSpeaker && !waitingForInput && isPlaying && (
+              <span className="ml-auto flex items-center gap-1 text-xs text-blue-400">
+                <span className="inline-flex gap-0.5">
+                  <span className="w-1 h-3 bg-blue-400 rounded animate-bounce" style={{ animationDelay: '0ms' }} />
+                  <span className="w-1 h-3 bg-blue-400 rounded animate-bounce" style={{ animationDelay: '150ms' }} />
+                  <span className="w-1 h-3 bg-blue-400 rounded animate-bounce" style={{ animationDelay: '300ms' }} />
+                </span>
+                {currentSpeaker} speaking
+              </span>
+            )}
+          </div>
+
+          {/* Transcript messages */}
+          <div className="flex-1 overflow-y-auto p-4 space-y-4">
             {messages.length === 0 && !conversationComplete && (
-              <p className="text-gray-500 text-sm text-center mt-8">
-                Quiz is starting...
+              <p className="text-gray-600 text-sm text-center mt-8 italic">
+                Interview is starting…
               </p>
             )}
 
             {messages.map((msg, index) => (
-              <div
-                key={index}
-                className={`flex ${msg.isHuman ? 'justify-end' : 'justify-start'}`}
-              >
-                <div
-                  className={`max-w-[85%] px-3 py-2 rounded-lg text-sm ${
-                    msg.isHuman
-                      ? 'bg-blue-600 text-white'
-                      : 'bg-gray-700 text-gray-200'
-                  }`}
-                >
+              <div key={index} className={`flex flex-col ${msg.isHuman ? 'items-end' : 'items-start'}`}>
+                <div className="flex items-center gap-2 mb-1">
                   {!msg.isHuman && (
-                    <div className="text-xs font-semibold text-blue-400 mb-1">
-                      {msg.sender}
+                    <div className="w-5 h-5 rounded-full bg-blue-600 flex items-center justify-center text-white text-xs font-bold shrink-0">
+                      {msg.sender.charAt(0)}
                     </div>
                   )}
-                  <div>{msg.text}</div>
+                  <span className={`text-xs font-semibold ${msg.isHuman ? 'text-emerald-400' : 'text-blue-400'}`}>
+                    {msg.sender}
+                  </span>
+                  {msg.isHuman && (
+                    <div className="w-5 h-5 rounded-full bg-emerald-600 flex items-center justify-center text-white text-xs font-bold shrink-0">
+                      Y
+                    </div>
+                  )}
+                </div>
+                <div
+                  className={`max-w-[88%] px-3 py-2 rounded-lg text-sm leading-relaxed ${
+                    msg.isHuman
+                      ? 'bg-emerald-900 bg-opacity-40 text-emerald-100 border border-emerald-800'
+                      : 'bg-gray-800 text-gray-100 border border-gray-700'
+                  }`}
+                >
+                  {msg.text}
                 </div>
               </div>
             ))}
@@ -782,32 +868,36 @@ const SceneWrapper = ({ onExitQuiz }) => {
                   value={humanInput}
                   onChange={(e) => setHumanInput(e.target.value)}
                   onKeyDown={(e) => e.key === 'Enter' && submitHumanInput()}
-                  placeholder="Type your answer..."
-                  className="flex-1 px-3 py-2 text-sm rounded border border-gray-600 bg-gray-800 text-gray-200 focus:border-blue-500 focus:outline-none"
+                  placeholder="Speak or type your answer…"
+                  className="flex-1 px-3 py-2 text-sm rounded-lg border border-emerald-700 bg-gray-900 text-gray-100 focus:border-emerald-400 focus:outline-none placeholder-gray-600"
                 />
                 <button
-                  className="px-4 py-2 bg-blue-600 text-white text-sm rounded hover:bg-blue-700 transition-colors disabled:opacity-50"
+                  className="px-4 py-2 bg-emerald-600 text-white text-sm rounded-lg hover:bg-emerald-700 transition-colors disabled:opacity-40"
                   onClick={submitHumanInput}
                   disabled={!humanInput.trim()}
                 >
                   Send
                 </button>
               </div>
-              <p className="text-xs text-gray-500 mt-1">Press Enter to submit your answer</p>
+              <p className="text-xs text-gray-600 mt-1">Press Enter or click Send</p>
             </div>
           )}
 
-          {!waitingForInput && isPlaying && (
-            <div className="border-t border-gray-700 p-3 text-center">
-              <p className="text-sm text-gray-400 animate-pulse">
-                {currentSpeaker} is speaking...
-              </p>
+          {/* "Listening…" state: avatar not speaking, not yet prompting user */}
+          {!waitingForInput && isPlaying && currentSpeaker && (
+            <div className="border-t border-gray-800 px-4 py-2 flex items-center gap-2">
+              <span className="inline-flex gap-0.5">
+                <span className="w-1 h-3 bg-blue-500 rounded animate-bounce" style={{ animationDelay: '0ms' }} />
+                <span className="w-1 h-3 bg-blue-500 rounded animate-bounce" style={{ animationDelay: '150ms' }} />
+                <span className="w-1 h-3 bg-blue-500 rounded animate-bounce" style={{ animationDelay: '300ms' }} />
+              </span>
+              <p className="text-xs text-blue-400">{currentSpeaker} is speaking…</p>
             </div>
           )}
 
           {error && (
-            <div className="border-t border-red-700 p-3">
-              <p className="text-red-400 text-sm">{error}</p>
+            <div className="border-t border-red-800 px-4 py-2">
+              <p className="text-red-400 text-xs">{error}</p>
             </div>
           )}
         </div>
