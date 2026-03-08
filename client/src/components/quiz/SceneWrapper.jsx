@@ -106,14 +106,33 @@ const SceneWrapper = ({ onExitQuiz }) => {
 
     try {
       // Ensure proper container styling
-      containerElement.style.width = '100%';
-      containerElement.style.height = '100%';
       containerElement.style.position = 'relative';
       containerElement.style.overflow = 'hidden';
       containerElement.style.display = 'block';
 
-      const boxHeight = containerElement.clientHeight || 300;
-      console.log('[SceneWrapper] Container dimensions:', containerElement.offsetWidth, containerElement.offsetHeight);
+      // Force explicit pixel dimensions so Three.js gets a non-zero canvas size.
+      // clientWidth/Height can be 0 if percentage-based layout hasn't fully resolved.
+      let boxWidth = containerElement.clientWidth;
+      let boxHeight = containerElement.clientHeight;
+
+      if (!boxWidth || !boxHeight) {
+        // Walk up the tree to find first ancestor with real dimensions
+        let ancestor = containerElement.parentElement;
+        while (ancestor && (!ancestor.clientWidth || !ancestor.clientHeight)) {
+          ancestor = ancestor.parentElement;
+        }
+        const ancestorW = ancestor?.clientWidth || window.innerWidth;
+        const ancestorH = ancestor?.clientHeight || window.innerHeight;
+        // Approximate the avatar box: 40% wide, 80% tall of the 60% scene pane
+        boxWidth = boxWidth || Math.round(ancestorW * 0.40);
+        boxHeight = boxHeight || Math.round(ancestorH * 0.80);
+      }
+
+      // Apply pixel dimensions explicitly so TalkingHead/Three.js sees them
+      containerElement.style.width = `${boxWidth}px`;
+      containerElement.style.height = `${boxHeight}px`;
+
+      console.log('[SceneWrapper] Container dimensions (px):', boxWidth, boxHeight);
 
       // Import TalkingHead directly (same as ExperienceMode)
       const TalkingHeadModule = await import('talkinghead');
@@ -177,6 +196,11 @@ const SceneWrapper = ({ onExitQuiz }) => {
         cameraDistance: avatarConfig.settings?.cameraDistance || 0.5,
         cameraRotateY: avatarConfig.settings?.cameraRotateY || 0,
       });
+
+      // After TalkingHead appends its canvas, switch the container back to responsive sizing
+      // so it fills the flex/absolute parent correctly.
+      containerElement.style.width = '100%';
+      containerElement.style.height = '100%';
 
       // Ensure canvas elements are properly styled
       const canvasElements = containerElement.querySelectorAll('canvas');
