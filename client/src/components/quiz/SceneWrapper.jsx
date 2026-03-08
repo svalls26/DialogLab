@@ -60,11 +60,16 @@ const SceneWrapper = ({ onExitQuiz }) => {
       if (abortControllerRef.current) {
         abortControllerRef.current.abort();
       }
-      // Stop all avatar instances
+      // Stop all avatar instances and dispose WebGL renderers to free context slots
       Object.values(avatarInstancesRef.current).forEach(instance => {
-        if (instance && typeof instance.stop === 'function') {
-          try { instance.stop(); } catch (e) { /* ignore */ }
-        }
+        if (!instance) return;
+        try { instance.stop?.(); } catch (e) { /* ignore */ }
+        try {
+          if (instance.renderer) {
+            instance.renderer.forceContextLoss?.();
+            instance.renderer.dispose?.();
+          }
+        } catch (e) { /* ignore */ }
       });
       // Stop webcam stream
       if (webcamStreamRef.current) {
@@ -97,14 +102,38 @@ const SceneWrapper = ({ onExitQuiz }) => {
       return null;
     }
 
-    // Clean up existing instance if stopped
+    // Clean up existing instance — stop it AND dispose the WebGL renderer
+    // so the browser WebGL context slot is freed before creating a new one.
     if (avatarInstancesRef.current[containerId]) {
-      try { await avatarInstancesRef.current[containerId].stop(); } catch (e) { /* ignore */ }
+      const old = avatarInstancesRef.current[containerId];
+      try { old.stop?.(); } catch (e) { /* ignore */ }
+      try {
+        if (old.renderer) {
+          old.renderer.forceContextLoss?.();
+          old.renderer.dispose?.();
+        }
+      } catch (e) { /* ignore */ }
       delete avatarInstancesRef.current[containerId];
       while (containerElement.firstChild) containerElement.removeChild(containerElement.firstChild);
     }
 
     try {
+      // --- Step 1: Pre-check WebGL availability ---
+      const testCanvas = document.createElement('canvas');
+      testCanvas.width = 4;
+      testCanvas.height = 4;
+      const testCtx = testCanvas.getContext('webgl2') || testCanvas.getContext('webgl');
+      if (!testCtx) {
+        throw new Error(
+          'WebGL is not available in your browser. ' +
+          'Please enable hardware acceleration: Chrome → Settings → System → ' +
+          '"Use graphics acceleration when available".'
+        );
+      }
+      // Release the test context immediately
+      const loseCtx = testCtx.getExtension('WEBGL_lose_context');
+      if (loseCtx) loseCtx.loseContext();
+
       // Ensure proper container styling
       containerElement.style.position = 'relative';
       containerElement.style.overflow = 'hidden';
@@ -429,11 +458,16 @@ const SceneWrapper = ({ onExitQuiz }) => {
 
   const resetQuiz = () => {
     stopQuiz();
-    // Stop avatar instances
+    // Stop avatar instances and free WebGL contexts
     Object.values(avatarInstancesRef.current).forEach(instance => {
-      if (instance && typeof instance.stop === 'function') {
-        try { instance.stop(); } catch (e) { /* ignore */ }
-      }
+      if (!instance) return;
+      try { instance.stop?.(); } catch (e) { /* ignore */ }
+      try {
+        if (instance.renderer) {
+          instance.renderer.forceContextLoss?.();
+          instance.renderer.dispose?.();
+        }
+      } catch (e) { /* ignore */ }
     });
     avatarInstancesRef.current = {};
     setIsSetup(true);
