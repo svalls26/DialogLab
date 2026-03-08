@@ -2,7 +2,7 @@ import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react'
 import FlashcardUploader from './FlashcardUploader';
 import { createQuizScene, createQuizConversationConfig } from '../../sceneConfig';
 import { API_CONFIG } from '../../config';
-import { initializeAvatar as initializeAvatarHandler } from '../avatarconfig/utils/AvatarHandler';
+import { getDefaultVoiceByGender } from '../avatarconfig/utils/AvatarHandler';
 
 const SceneWrapper = ({ onExitQuiz }) => {
   // Setup state
@@ -20,6 +20,8 @@ const SceneWrapper = ({ onExitQuiz }) => {
   const [currentSpeaker, setCurrentSpeaker] = useState(null);
   const [conversationComplete, setConversationComplete] = useState(false);
   const [error, setError] = useState('');
+  const [avatarStatus, setAvatarStatus] = useState('idle'); // idle | loading | ready | error
+  const [avatarError, setAvatarError] = useState(null);
 
   // Refs
   const avatarInstancesRef = useRef({});
@@ -81,35 +83,125 @@ const SceneWrapper = ({ onExitQuiz }) => {
       return avatarInstancesRef.current[containerId];
     }
 
-    // Build the persona object that AvatarHandler expects
-    const persona = {
-      name: avatarConfig.name,
-      url: avatarConfig.url || avatarConfig.settings?.url || '/assets/avatar1.glb',
-      gender: avatarConfig.gender,
-      voice: avatarConfig.voice,
-      settings: avatarConfig.settings || {},
-    };
+    const avatarUrl = avatarConfig.url || avatarConfig.settings?.url || '/assets/avatar1.glb';
+    setAvatarStatus('loading');
+    setAvatarError(null);
 
-    console.log('[SceneWrapper] Initializing avatar:', containerId, 'url:', persona.url,
-      'DOM container:', document.getElementById(`avatar-container-${containerId}`));
+    // Find the container directly in the DOM (same approach as ExperienceMode)
+    const containerElement = document.getElementById(`avatar-container-${containerId}`);
+    if (!containerElement) {
+      const errMsg = `Container element not found: avatar-container-${containerId}`;
+      console.error('[SceneWrapper]', errMsg);
+      setAvatarStatus('error');
+      setAvatarError(errMsg);
+      return null;
+    }
 
-    const success = await initializeAvatarHandler(containerId, persona, avatarInstancesRef);
-    console.log('[SceneWrapper] initializeAvatarHandler returned:', success, 'instance:', !!avatarInstancesRef.current[containerId]);
-    if (success && avatarInstancesRef.current[containerId]) {
-      const instance = avatarInstancesRef.current[containerId];
-      // Also store by name for speaker lookup during conversation
-      if (avatarConfig.name) {
-        avatarInstancesRef.current[avatarConfig.name] = instance;
+    // Clean up existing instance if stopped
+    if (avatarInstancesRef.current[containerId]) {
+      try { await avatarInstancesRef.current[containerId].stop(); } catch (e) { /* ignore */ }
+      delete avatarInstancesRef.current[containerId];
+      while (containerElement.firstChild) containerElement.removeChild(containerElement.firstChild);
+    }
+
+    try {
+      // Ensure proper container styling
+      containerElement.style.width = '100%';
+      containerElement.style.height = '100%';
+      containerElement.style.position = 'relative';
+      containerElement.style.overflow = 'hidden';
+      containerElement.style.display = 'block';
+
+      const boxHeight = containerElement.clientHeight || 300;
+      console.log('[SceneWrapper] Container dimensions:', containerElement.offsetWidth, containerElement.offsetHeight);
+
+      // Import TalkingHead directly (same as ExperienceMode)
+      const TalkingHeadModule = await import('talkinghead');
+      const { TalkingHead } = TalkingHeadModule;
+      if (!TalkingHead) {
+        throw new Error('TalkingHead not found in imported module');
       }
+      console.log('[SceneWrapper] TalkingHead library imported successfully');
+
+      const instance = new TalkingHead(containerElement, {
+        height: boxHeight,
+        ttsEndpoint: `${API_CONFIG.BASE_URL}${API_CONFIG.ENDPOINTS.TTS}`,
+        ttsApikey: localStorage.getItem('TTS_API_KEY') || null,
+        lipsyncModules: ['en'],
+      });
+      instance._isStopped = false;
+
+      const originalStop = instance.stop;
+      instance.stop = async function () {
+        const result = await originalStop.apply(this, arguments);
+        this._isStopped = true;
+        return result;
+      };
+
       // Add speakText compatibility if missing
       if (!instance.speakText && instance.speak) {
         instance.speakText = function (text) {
           return this.speak({ text, emotionType: 'neutral' });
         };
       }
+
+      // Add playAudio compatibility if missing
+      if (!instance.playAudio && instance.speak) {
+        instance.playAudio = function (options) {
+          return this.speak({
+            text: options.text || '',
+            audioBase64: options.url,
+            emotionType: options.emotion || 'neutral',
+          });
+        };
+      }
+
+      const isMale =
+        avatarConfig.gender === 'male' ||
+        (avatarConfig.gender === undefined && avatarUrl.includes('male-avatar'));
+
+      console.log('[SceneWrapper] Loading avatar model:', avatarUrl);
+      await instance.showAvatar({
+        id: avatarConfig.name,
+        name: avatarConfig.name,
+        url: avatarUrl,
+        body: isMale ? 'M' : 'F',
+        avatarMood: avatarConfig.settings?.mood || 'neutral',
+        ttsLang: avatarConfig.settings?.ttsLang || 'en-GB',
+        ttsVoice: avatarConfig.voice || getDefaultVoiceByGender({ gender: avatarConfig.gender, voice: avatarConfig.voice }),
+        lipsyncLang: avatarConfig.settings?.lipsyncLang || 'en',
+        transparent: true,
+      });
+
+      await instance.setView(avatarConfig.settings?.cameraView || 'upper', {
+        cameraDistance: avatarConfig.settings?.cameraDistance || 0.5,
+        cameraRotateY: avatarConfig.settings?.cameraRotateY || 0,
+      });
+
+      // Ensure canvas elements are properly styled
+      const canvasElements = containerElement.querySelectorAll('canvas');
+      canvasElements.forEach((canvas) => {
+        canvas.style.width = '100%';
+        canvas.style.height = '100%';
+        canvas.style.display = 'block';
+        canvas.style.imageRendering = 'auto';
+      });
+
+      // Store by element ID and by name for speaker lookup
+      avatarInstancesRef.current[containerId] = instance;
+      if (avatarConfig.name) {
+        avatarInstancesRef.current[avatarConfig.name] = instance;
+      }
+
+      console.log('[SceneWrapper] Avatar initialized successfully for:', containerId);
+      setAvatarStatus('ready');
       return instance;
+    } catch (err) {
+      console.error('[SceneWrapper] Error initializing avatar:', err);
+      setAvatarStatus('error');
+      setAvatarError(err.message || 'Unknown error initializing avatar');
+      return null;
     }
-    return null;
   };
 
   const initializeWebcam = async () => {
@@ -149,7 +241,11 @@ const SceneWrapper = ({ onExitQuiz }) => {
   useEffect(() => {
     if (!isSetup) {
       const timer = setTimeout(() => {
-        requestAnimationFrame(() => initializeScene());
+        requestAnimationFrame(async () => {
+          await initializeScene();
+          // Start conversation only after avatar is initialized
+          startConversation();
+        });
       }, 800);
       return () => clearTimeout(timer);
     }
@@ -166,11 +262,8 @@ const SceneWrapper = ({ onExitQuiz }) => {
     setMessages([]);
     setConversationComplete(false);
     setScore({ correct: 0, incorrect: 0, total: 0 });
-
-    // Start conversation after a delay to let scene initialize
-    setTimeout(() => {
-      startConversation();
-    }, 1500);
+    setAvatarStatus('idle');
+    setAvatarError(null);
   };
 
   const startConversation = async () => {
@@ -491,6 +584,29 @@ const SceneWrapper = ({ onExitQuiz }) => {
                               transition: 'border-color 0.3s',
                             }}
                           />
+                          {/* Avatar loading / error overlay */}
+                          {avatarStatus === 'loading' && (
+                            <div className="absolute inset-0 flex items-center justify-center bg-black bg-opacity-60 rounded-lg">
+                              <div className="text-center">
+                                <div className="w-6 h-6 border-2 border-blue-500 border-t-transparent rounded-full animate-spin mx-auto mb-2" />
+                                <p className="text-gray-300 text-xs">Loading avatar...</p>
+                              </div>
+                            </div>
+                          )}
+                          {avatarStatus === 'error' && (
+                            <div className="absolute inset-0 flex items-center justify-center bg-black bg-opacity-70 rounded-lg">
+                              <div className="text-center p-3">
+                                <p className="text-red-400 text-xs mb-1">Avatar failed to load</p>
+                                <p className="text-gray-500 text-xs mb-2">{avatarError}</p>
+                                <button
+                                  className="px-2 py-1 text-xs bg-blue-600 text-white rounded hover:bg-blue-700"
+                                  onClick={() => initializeScene()}
+                                >
+                                  Retry
+                                </button>
+                              </div>
+                            </div>
+                          )}
                           <div className="absolute bottom-2 left-0 right-0 text-center">
                             <span className={`px-2 py-0.5 rounded text-xs ${
                               isSpeaking ? 'bg-blue-600 text-white' : 'bg-black bg-opacity-60 text-gray-300'
