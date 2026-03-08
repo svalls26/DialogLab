@@ -12,12 +12,14 @@ export default defineConfig({
       '@': path.resolve(__dirname, './src'),
       'three': 'three',
       'three/addons/': 'three/examples/jsm/',
-      'talkinghead': 'https://cdn.jsdelivr.net/gh/met4citizen/TalkingHead@1.3/modules/talkinghead.mjs'
+      // Use the local bundled copy so it shares the same Three.js instance as the
+      // rest of the app (the CDN version imports its own Three.js which causes a
+      // second WebGL context that exhausts the browser limit).
+      'talkinghead': path.resolve(__dirname, './src/libs/talkinghead.mjs')
     }
   },
   optimizeDeps: {
     include: ['three'],
-    exclude: ['talkinghead']
   },
   build: {
     sourcemap: true,
