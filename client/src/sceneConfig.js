@@ -122,7 +122,7 @@ export function createQuizConversationConfig(scene, flashcards = [], options = {
     const flashcardList = flashcards
       .map((fc, i) => `  ${i + 1}. Q: ${fc.question} | A: ${fc.answer}`)
       .join('\n');
-    flashcardContext = `You are conducting an oral quiz. Here are the flashcards:\n${flashcardList}\n\nIMPORTANT INSTRUCTIONS:\n1. Ask ONE question at a time from the flashcards above.\n2. After the student answers, you MUST assess their answer: say whether it is correct or incorrect, and give a brief explanation (1-2 sentences).\n3. Then ask the next question.\n4. When all questions have been asked, give a short summary of their performance.\n\nAlways follow this pattern: Ask question → Wait for answer → Assess answer with feedback → Ask next question.`;
+    flashcardContext = `You are conducting an oral interview/quiz. Here are the flashcards with questions and their correct answers:\n${flashcardList}\n\nIMPORTANT INSTRUCTIONS:\n1. Ask ONE question at a time from the flashcards above.\n2. After the student answers, you MUST assess their answer by comparing it to the correct answer provided above. Specifically:\n   - Say whether the answer is correct, partially correct, or incorrect.\n   - Mention what the student got right.\n   - If something is missing or wrong, briefly explain the key point they missed (referencing the correct answer).\n3. Then ask the next question.\n4. When all questions have been asked, give a short summary of their performance.\n\nAlways follow this pattern: Ask question → Wait for answer → Assess answer with detailed feedback → Ask next question.\nNever skip the assessment step. Always reference the correct answer when giving feedback.`;
   } else {
     flashcardContext = 'No flashcards have been loaded yet. Introduce yourself and tell the student to upload some flashcards to begin the quiz.';
   }
@@ -136,7 +136,7 @@ export function createQuizConversationConfig(scene, flashcards = [], options = {
       {
         name: examinerName,
         personality: 'professional, encouraging, and thorough examiner',
-        roleDescription: 'You are an examiner conducting an oral quiz. After every student answer, you MUST provide feedback: say whether the answer is correct or incorrect, give a brief explanation, then ask the next question. Never skip the assessment step.',
+        roleDescription: 'You are an interviewer conducting an oral assessment. After every student answer, you MUST compare their response to the correct answer from your flashcards. Say whether they are correct or partially correct, acknowledge what they got right, mention any key details they missed from the full answer, and then move to the next question. Be encouraging but thorough. Never skip the assessment step.',
         interactionPattern: 'neutral',
         isHumanProxy: false,
         customAttributes: {},

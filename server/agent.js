@@ -99,7 +99,11 @@ class Agent {
         }
       }
   
-      const prompt = `You are ${this.name}, a ${this.personality} person. ${attributeContext} 
+      const responseLength = this.roleDescription
+            ? "Respond in 2-4 sentences. Be thorough in your assessment but stay concise."
+            : "Respond briefly (1-2 sentences), building on previous points without repeating them.";
+
+      const prompt = `You are ${this.name}, a ${this.personality} person. ${attributeContext}
             ${this.roleDescription ? "Role: " + this.roleDescription : ""}
             ${isStartingMessage && message !== "This is the first scene" ? `What happened in the last scene: ${message}` : ""}
             ${isStartingMessage && message !== "This is the first scene" ? "briefly summarize what happened in the last scene and transition to the current context (use 1-2 sentences): " : ""}
@@ -107,8 +111,8 @@ class Agent {
             ${context}
             ${interruptionContext}
             ${!isStartingMessage ? `Last message: ${message}` : ""}
-           
-            Respond briefly (1-2 sentences), building on previous points without repeating them.
+
+            ${responseLength}
             Keep your response conversational and natural. After you speak, ${nextSpeaker} will respond.`;
 
             // console.log(prompt);

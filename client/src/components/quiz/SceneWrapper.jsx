@@ -94,6 +94,7 @@ const SceneWrapper = ({ onExitQuiz }) => {
   const [error, setError] = useState('');
   const [avatarStatus, setAvatarStatus] = useState('idle'); // idle | loading | ready | error
   const [avatarError, setAvatarError] = useState(null);
+  const [isListening, setIsListening] = useState(false);
 
   // Refs
   const avatarInstancesRef = useRef({});
@@ -104,6 +105,7 @@ const SceneWrapper = ({ onExitQuiz }) => {
   const messagesEndRef = useRef(null);
   const abortControllerRef = useRef(null);
   const inputRef = useRef(null);
+  const recognitionRef = useRef(null);
 
   // Score tracking
   const [score, setScore] = useState({ correct: 0, incorrect: 0, total: 0 });
@@ -149,8 +151,68 @@ const SceneWrapper = ({ onExitQuiz }) => {
         webcamStreamRef.current.getTracks().forEach(track => track.stop());
         webcamStreamRef.current = null;
       }
+      // Stop speech recognition
+      if (recognitionRef.current) {
+        recognitionRef.current.abort();
+        recognitionRef.current = null;
+      }
     };
   }, []);
+
+  // Speech recognition toggle
+  const toggleListening = useCallback(() => {
+    const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+    if (!SpeechRecognition) {
+      setError('Speech recognition is not supported in this browser. Please use Chrome or Safari.');
+      return;
+    }
+
+    if (isListening) {
+      // Stop listening
+      recognitionRef.current?.stop();
+      return;
+    }
+
+    const recognition = new SpeechRecognition();
+    recognition.lang = 'en-US';
+    recognition.interimResults = true;
+    recognition.continuous = true;
+
+    let finalTranscript = '';
+
+    recognition.onstart = () => setIsListening(true);
+
+    recognition.onresult = (event) => {
+      let interim = '';
+      finalTranscript = '';
+      for (let i = 0; i < event.results.length; i++) {
+        const result = event.results[i];
+        if (result.isFinal) {
+          finalTranscript += result[0].transcript;
+        } else {
+          interim += result[0].transcript;
+        }
+      }
+      setHumanInput(finalTranscript || interim);
+    };
+
+    recognition.onerror = (event) => {
+      console.error('[SpeechRecognition] error:', event.error);
+      if (event.error !== 'aborted') {
+        setError(`Microphone error: ${event.error}`);
+      }
+      setIsListening(false);
+      recognitionRef.current = null;
+    };
+
+    recognition.onend = () => {
+      setIsListening(false);
+      recognitionRef.current = null;
+    };
+
+    recognitionRef.current = recognition;
+    recognition.start();
+  }, [isListening]);
 
   const initializeAvatar = async (containerId, avatarConfig) => {
     if (!containerId || !avatarConfig) {
@@ -889,24 +951,46 @@ const SceneWrapper = ({ onExitQuiz }) => {
           {waitingForInput && (
             <div className="border-t border-gray-700 p-3">
               <div className="flex gap-2">
+                <button
+                  className={`px-3 py-2 rounded-lg text-sm transition-colors shrink-0 ${
+                    isListening
+                      ? 'bg-red-600 text-white animate-pulse'
+                      : 'bg-gray-700 text-gray-300 hover:bg-gray-600'
+                  }`}
+                  onClick={toggleListening}
+                  title={isListening ? 'Stop listening' : 'Start voice input'}
+                >
+                  {isListening ? (
+                    <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><rect x="6" y="6" width="12" height="12" rx="2"/></svg>
+                  ) : (
+                    <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"/><path d="M19 10v2a7 7 0 0 1-14 0v-2"/><line x1="12" y1="19" x2="12" y2="23"/><line x1="8" y1="23" x2="16" y2="23"/></svg>
+                  )}
+                </button>
                 <input
                   ref={inputRef}
                   type="text"
                   value={humanInput}
                   onChange={(e) => setHumanInput(e.target.value)}
                   onKeyDown={(e) => e.key === 'Enter' && submitHumanInput()}
-                  placeholder="Speak or type your answer…"
-                  className="flex-1 px-3 py-2 text-sm rounded-lg border border-emerald-700 bg-gray-900 text-gray-100 focus:border-emerald-400 focus:outline-none placeholder-gray-600"
+                  placeholder={isListening ? 'Listening...' : 'Speak or type your answer…'}
+                  className={`flex-1 px-3 py-2 text-sm rounded-lg border bg-gray-900 text-gray-100 focus:outline-none placeholder-gray-600 ${
+                    isListening ? 'border-red-500 focus:border-red-400' : 'border-emerald-700 focus:border-emerald-400'
+                  }`}
                 />
                 <button
                   className="px-4 py-2 bg-emerald-600 text-white text-sm rounded-lg hover:bg-emerald-700 transition-colors disabled:opacity-40"
-                  onClick={submitHumanInput}
+                  onClick={() => {
+                    if (isListening) recognitionRef.current?.stop();
+                    submitHumanInput();
+                  }}
                   disabled={!humanInput.trim()}
                 >
                   Send
                 </button>
               </div>
-              <p className="text-xs text-gray-600 mt-1">Press Enter or click Send</p>
+              <p className="text-xs text-gray-600 mt-1">
+                {isListening ? 'Listening... click Send or press Enter when done' : 'Press Enter, click Send, or use the mic'}
+              </p>
             </div>
           )}
 
