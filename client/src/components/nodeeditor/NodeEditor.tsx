@@ -1841,7 +1841,11 @@ const NodeEditor: React.FC<{
                           avatarName: elementWithSpeaker.avatarData?.name || `Avatar ${elementWithSpeaker.id}`,
                           start: currentTime,
                           duration: estimatedDuration,
-                          message: data.message
+                          message: {
+                            sender: data.speaker,
+                            message: data.text,
+                            ...(data.message || {})
+                          }
                         };
 
                         tempAudioSegments.push(newSegment);
@@ -2758,11 +2762,10 @@ const NodeEditor: React.FC<{
       {messages.length > 0 && (
         <PreviewPanel
           messages={messages.map(m => ({
+            ...m,
             content: m.message,
-            sender: m.sender,
-            isProactive: false,
-            party: m.party,
-            avatarConfig: m.avatarConfig
+            participant: m.sender,
+            isProactive: m.isProactive || false,
           }))}
           onClose={() => setMessages([])}
           audioSegments={audioSegments}
