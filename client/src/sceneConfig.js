@@ -122,7 +122,7 @@ export function createQuizConversationConfig(scene, flashcards = [], options = {
     const flashcardList = flashcards
       .map((fc, i) => `  ${i + 1}. Q: ${fc.question} | A: ${fc.answer}`)
       .join('\n');
-    flashcardContext = `You are conducting an oral interview/quiz. Here are the flashcards with questions and their correct answers:\n${flashcardList}\n\nIMPORTANT INSTRUCTIONS:\n1. Ask ONE question at a time from the flashcards above.\n2. After the student answers, you MUST assess their answer by comparing it to the correct answer provided above. Specifically:\n   - Say whether the answer is correct, partially correct, or incorrect.\n   - Mention what the student got right.\n   - If something is missing or wrong, briefly explain the key point they missed (referencing the correct answer).\n3. Then ask the next question.\n4. When all questions have been asked, give a short summary of their performance.\n\nAlways follow this pattern: Ask question → Wait for answer → Assess answer with detailed feedback → Ask next question.\nNever skip the assessment step. Always reference the correct answer when giving feedback.`;
+    flashcardContext = `You are conducting an oral interview/quiz. Here are the flashcards with questions and their correct answers:\n${flashcardList}\n\nIMPORTANT INSTRUCTIONS:\n1. Ask ONE question at a time from the flashcards above, in order.\n2. After the student answers, you MUST assess their answer by comparing it to the correct answer provided above. Specifically:\n   - Say whether the answer is correct, partially correct, or incorrect.\n   - Mention what the student got right.\n   - If something is missing or wrong, briefly explain the key point they missed (referencing the correct answer).\n3. Then move on to the NEXT question. Never re-ask a question that has already been asked.\n4. When all questions have been asked, give a short summary of their performance.\n\nCRITICAL: Look at the conversation history to see which questions you have already asked. Do NOT repeat any question. Always progress to the next unasked question.\n\nAlways follow this pattern: Ask question → Wait for answer → Assess answer with detailed feedback → Ask next question.\nNever skip the assessment step. Always reference the correct answer when giving feedback.`;
   } else {
     flashcardContext = 'No flashcards have been loaded yet. Introduce yourself and tell the student to upload some flashcards to begin the quiz.';
   }
@@ -153,7 +153,7 @@ export function createQuizConversationConfig(scene, flashcards = [], options = {
     ],
     participants: [examinerName, studentName],
     initiator: examinerName,
-    topic: `Quiz session`,
+    topic: `Interview assessment based on flashcards`,
     subTopic: '',
     conversationPrompt: flashcardContext,
     interactionPattern: 'neutral',

@@ -450,13 +450,27 @@ class ConversationManager {
 
 
   async getContextForPattern(lastSpeaker, currentAgent, nextAgent) {
-    // Get the recent messages summary from memory
-    const contextualHistory = await this.memory.getContextualHistory();
-    const recentMessagesSummary = contextualHistory?.recentMessages || "";
+    let recentMessagesSummary;
+
+    // For quiz/interview mode (when conversationPrompt is set), use raw conversation
+    // transcript instead of a lossy LLM summary, so the agent can track which
+    // questions have been asked and answered.
+    if (this.conversationPrompt && this.conversation.length > 0) {
+      const recentMessages = this.conversation
+        .filter(m => !m.isBackchannel && !m.isSystemMessage)
+        .slice(-10) // Keep last 10 messages for context
+        .map(m => `${m.sender}: ${m.message}`)
+        .join('\n');
+      recentMessagesSummary = recentMessages;
+    } else {
+      // Get the recent messages summary from memory (default behavior)
+      const contextualHistory = await this.memory.getContextualHistory();
+      recentMessagesSummary = contextualHistory?.recentMessages || "";
+    }
 
     let context = chatUtils.getContextForPattern(
-      lastSpeaker, 
-      currentAgent, 
+      lastSpeaker,
+      currentAgent,
       nextAgent,
       this.interactionPattern,
       this.topic,
@@ -628,15 +642,18 @@ class ConversationManager {
     // Add content-specific context
     if (this.contentMode && this.activeContentId) {
       const ownership = this.contentManager.getOwnership(this.activeContentId);
-      const isPresenter = ownership.presenterIsParty 
+      const isPresenter = ownership.presenterIsParty
         ? this.getAgentParty(agent.name) === ownership.presenter
         : agent.name === ownership.presenter;
-      
+
       if (isPresenter) {
         context += ` You are the presenter of the content. Start by introducing it to everyone and highlighting key points.`;
       } else if (this.agentHasContentAccess(agent.name)) {
         context += ` The discussion involves shared content that will be presented. Start the discussion by introducing the topic.`;
       }
+    } else if (conversationPrompt) {
+      // For quiz/interview mode: let the conversationPrompt guide the first message
+      context += ` Begin now. Ask the first question directly — do not introduce yourself or the topic.`;
     } else {
       context += ` Start the discussion by introducing the topic and inviting opinions.`;
     }
