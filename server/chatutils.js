@@ -208,7 +208,7 @@ export function getContextForPattern(lastSpeaker, currentAgent, nextAgent, inter
     context += `Topic: ${topic || "General discussion"}`;
   }
 
-  context += ` ${themeContext} ${lastSpeakerContext} Recent discussion summary: ${recentMessages} ${additionalContext}`;
+  context += ` ${themeContext} ${lastSpeakerContext}\n\nConversation so far:\n${recentMessages}\n\n${additionalContext}`;
   
   // Add recipient guidance
   if (nextAgent === "All" || !nextAgent) {
