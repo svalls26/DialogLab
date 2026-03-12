@@ -2,7 +2,78 @@ import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react'
 import FlashcardUploader from './FlashcardUploader';
 import { createQuizScene, createQuizConversationConfig } from '../../sceneConfig';
 import { API_CONFIG } from '../../config';
-import { initializeAvatar as initializeAvatarHandler, isWebGLAvailable } from '../avatarconfig/utils/AvatarHandler';
+import { getDefaultVoiceByGender } from '../avatarconfig/utils/AvatarHandler';
+
+// ─── Speech helpers (module-level, no React deps) ────────────────────────────
+
+/** Poll until TalkingHead stops speaking, or timeout. */
+const waitForSpeechEnd = (avatar, timeoutMs = 90000) =>
+  new Promise((resolve) => {
+    if (!avatar || !avatar.isSpeaking) { resolve(); return; }
+    const start = Date.now();
+    const id = setInterval(() => {
+      if (!avatar.isSpeaking || Date.now() - start > timeoutMs) {
+        clearInterval(id);
+        resolve();
+      }
+    }, 150);
+  });
+
+/**
+ * Speak text through TalkingHead (Google TTS + lip-sync).
+ * Falls back to browser Web Speech API if TalkingHead hasn't started speaking
+ * within 1.5 s (e.g. no TTS API key configured).
+ * Returns a Promise that resolves when speech finishes.
+ *
+ * @param {object} avatar   TalkingHead instance
+ * @param {string} text     Text to speak
+ * @param {string} lang     BCP-47 language tag, e.g. 'en-GB'
+ * @param {string} [voice]  Google TTS voice name, e.g. 'en-GB-Standard-A'
+ */
+const speakAsAvatar = async (avatar, text, lang = 'en-GB', voice = null) => {
+  if (!avatar) return;
+
+  try {
+    // Pass voice options explicitly so TalkingHead uses the correct Google TTS
+    // voice even if this.avatar.ttsVoice was somehow not set via showAvatar().
+    const ttsOpt = {};
+    if (lang)  ttsOpt.ttsLang  = lang;
+    if (voice) ttsOpt.ttsVoice = voice;
+    avatar.speakText(text, Object.keys(ttsOpt).length ? ttsOpt : null);
+    // Give TalkingHead time to contact the TTS endpoint and start playing
+    await new Promise((r) => setTimeout(r, 1500));
+    if (avatar.isSpeaking) {
+      await waitForSpeechEnd(avatar);
+      return;
+    }
+  } catch (e) {
+    console.warn('[speakAsAvatar] TalkingHead speakText error:', e);
+  }
+
+  // Fallback: browser Web Speech API (no API key required)
+  if ('speechSynthesis' in window) {
+    await new Promise((resolve) => {
+      window.speechSynthesis.cancel();
+      const utter = new SpeechSynthesisUtterance(text);
+      utter.lang = lang;
+      utter.rate = 0.9;
+
+      // Prefer a female voice in the fallback when one is available
+      const voices = window.speechSynthesis.getVoices();
+      const femaleVoice =
+        voices.find((v) => v.lang.startsWith(lang.split('-')[0]) && /female|woman|girl/i.test(v.name)) ||
+        voices.find((v) => v.lang === lang) ||
+        null;
+      if (femaleVoice) utter.voice = femaleVoice;
+
+      utter.onend = resolve;
+      utter.onerror = resolve;
+      window.speechSynthesis.speak(utter);
+    });
+  }
+};
+
+// ─────────────────────────────────────────────────────────────────────────────
 
 const SceneWrapper = ({ onExitQuiz }) => {
   // Setup state
@@ -21,9 +92,12 @@ const SceneWrapper = ({ onExitQuiz }) => {
   const [currentSpeaker, setCurrentSpeaker] = useState(null);
   const [conversationComplete, setConversationComplete] = useState(false);
   const [error, setError] = useState('');
+  const [avatarStatus, setAvatarStatus] = useState('idle'); // idle | loading | ready | error
+  const [avatarError, setAvatarError] = useState(null);
 
   // Refs
   const avatarInstancesRef = useRef({});
+  const currentSpeechRef = useRef(null);  // Promise of the avatar's current speech
   const webcamStreamRef = useRef(null);
   const webcamVideoRef = useRef(null);
   const sceneContainerRef = useRef(null);
@@ -59,11 +133,16 @@ const SceneWrapper = ({ onExitQuiz }) => {
       if (abortControllerRef.current) {
         abortControllerRef.current.abort();
       }
-      // Stop all avatar instances
+      // Stop all avatar instances and dispose WebGL renderers to free context slots
       Object.values(avatarInstancesRef.current).forEach(instance => {
-        if (instance && typeof instance.stop === 'function') {
-          try { instance.stop(); } catch (e) { /* ignore */ }
-        }
+        if (!instance) return;
+        try { instance.stop?.(); } catch (e) { /* ignore */ }
+        try {
+          if (instance.renderer) {
+            instance.renderer.forceContextLoss?.();
+            instance.renderer.dispose?.();
+          }
+        } catch (e) { /* ignore */ }
       });
       // Stop webcam stream
       if (webcamStreamRef.current) {
@@ -82,38 +161,177 @@ const SceneWrapper = ({ onExitQuiz }) => {
       return avatarInstancesRef.current[containerId];
     }
 
-    // Build the persona object that AvatarHandler expects
-    const persona = {
-      name: avatarConfig.name,
-      url: avatarConfig.url || avatarConfig.settings?.url || '/assets/avatar1.glb',
-      gender: avatarConfig.gender,
-      voice: avatarConfig.voice,
-      settings: avatarConfig.settings || {},
-    };
+    const avatarUrl = avatarConfig.url || avatarConfig.settings?.url || '/assets/avatar1.glb';
+    setAvatarStatus('loading');
+    setAvatarError(null);
 
-    console.log('[SceneWrapper] Initializing avatar:', containerId, 'url:', persona.url,
-      'DOM container:', document.getElementById(`avatar-container-${containerId}`));
-
-    const success = await initializeAvatarHandler(containerId, persona, avatarInstancesRef);
-    console.log('[SceneWrapper] initializeAvatarHandler returned:', success, 'instance:', !!avatarInstancesRef.current[containerId]);
-    if (!success) {
-      setAvatarFailed(true);
+    // Find the container directly in the DOM (same approach as ExperienceMode)
+    const containerElement = document.getElementById(`avatar-container-${containerId}`);
+    if (!containerElement) {
+      const errMsg = `Container element not found: avatar-container-${containerId}`;
+      console.error('[SceneWrapper]', errMsg);
+      setAvatarStatus('error');
+      setAvatarError(errMsg);
+      return null;
     }
-    if (success && avatarInstancesRef.current[containerId]) {
-      const instance = avatarInstancesRef.current[containerId];
-      // Also store by name for speaker lookup during conversation
-      if (avatarConfig.name) {
-        avatarInstancesRef.current[avatarConfig.name] = instance;
+
+    // Clean up existing instance — stop it AND dispose the WebGL renderer
+    // so the browser WebGL context slot is freed before creating a new one.
+    if (avatarInstancesRef.current[containerId]) {
+      const old = avatarInstancesRef.current[containerId];
+      try { old.stop?.(); } catch (e) { /* ignore */ }
+      try {
+        if (old.renderer) {
+          old.renderer.forceContextLoss?.();
+          old.renderer.dispose?.();
+        }
+      } catch (e) { /* ignore */ }
+      delete avatarInstancesRef.current[containerId];
+      while (containerElement.firstChild) containerElement.removeChild(containerElement.firstChild);
+    }
+
+    try {
+      // --- Step 1: Pre-check WebGL availability ---
+      const testCanvas = document.createElement('canvas');
+      testCanvas.width = 4;
+      testCanvas.height = 4;
+      const testCtx = testCanvas.getContext('webgl2') || testCanvas.getContext('webgl');
+      if (!testCtx) {
+        throw new Error(
+          'WebGL is not available in your browser. ' +
+          'Please enable hardware acceleration: Chrome → Settings → System → ' +
+          '"Use graphics acceleration when available".'
+        );
       }
+      // Release the test context immediately
+      const loseCtx = testCtx.getExtension('WEBGL_lose_context');
+      if (loseCtx) loseCtx.loseContext();
+
+      // Ensure proper container styling
+      containerElement.style.position = 'relative';
+      containerElement.style.overflow = 'hidden';
+      containerElement.style.display = 'block';
+
+      // Force explicit pixel dimensions so Three.js gets a non-zero canvas size.
+      // clientWidth/Height can be 0 if percentage-based layout hasn't fully resolved.
+      let boxWidth = containerElement.clientWidth;
+      let boxHeight = containerElement.clientHeight;
+
+      if (!boxWidth || !boxHeight) {
+        // Walk up the tree to find first ancestor with real dimensions
+        let ancestor = containerElement.parentElement;
+        while (ancestor && (!ancestor.clientWidth || !ancestor.clientHeight)) {
+          ancestor = ancestor.parentElement;
+        }
+        const ancestorW = ancestor?.clientWidth || window.innerWidth;
+        const ancestorH = ancestor?.clientHeight || window.innerHeight;
+        // Approximate the avatar box: 40% wide, 80% tall of the 60% scene pane
+        boxWidth = boxWidth || Math.round(ancestorW * 0.40);
+        boxHeight = boxHeight || Math.round(ancestorH * 0.80);
+      }
+
+      // Apply pixel dimensions explicitly so TalkingHead/Three.js sees them
+      containerElement.style.width = `${boxWidth}px`;
+      containerElement.style.height = `${boxHeight}px`;
+
+      console.log('[SceneWrapper] Container dimensions (px):', boxWidth, boxHeight);
+
+      // Import TalkingHead directly (same as ExperienceMode)
+      const TalkingHeadModule = await import('talkinghead');
+      const { TalkingHead } = TalkingHeadModule;
+      if (!TalkingHead) {
+        throw new Error('TalkingHead not found in imported module');
+      }
+      console.log('[SceneWrapper] TalkingHead library imported successfully');
+
+      const instance = new TalkingHead(containerElement, {
+        height: boxHeight,
+        ttsEndpoint: `${API_CONFIG.BASE_URL}${API_CONFIG.ENDPOINTS.TTS}`,
+        ttsApikey: localStorage.getItem('TTS_API_KEY') || null,
+        lipsyncModules: ['en'],
+      });
+      instance._isStopped = false;
+
+      const originalStop = instance.stop;
+      instance.stop = async function () {
+        const result = await originalStop.apply(this, arguments);
+        this._isStopped = true;
+        return result;
+      };
+
       // Add speakText compatibility if missing
       if (!instance.speakText && instance.speak) {
         instance.speakText = function (text) {
           return this.speak({ text, emotionType: 'neutral' });
         };
       }
+
+      // Add playAudio compatibility if missing
+      if (!instance.playAudio && instance.speak) {
+        instance.playAudio = function (options) {
+          return this.speak({
+            text: options.text || '',
+            audioBase64: options.url,
+            emotionType: options.emotion || 'neutral',
+          });
+        };
+      }
+
+      const isMale =
+        avatarConfig.gender === 'male' ||
+        (avatarConfig.gender === undefined && avatarUrl.includes('male-avatar'));
+
+      console.log('[SceneWrapper] Loading avatar model:', avatarUrl);
+      await instance.showAvatar({
+        id: avatarConfig.name,
+        name: avatarConfig.name,
+        url: avatarUrl,
+        body: isMale ? 'M' : 'F',
+        avatarMood: avatarConfig.settings?.mood || 'neutral',
+        ttsLang: avatarConfig.settings?.ttsLang || 'en-GB',
+        ttsVoice: avatarConfig.voice || getDefaultVoiceByGender({ gender: avatarConfig.gender, voice: avatarConfig.voice }),
+        lipsyncLang: avatarConfig.settings?.lipsyncLang || 'en',
+        transparent: true,
+      });
+
+      await instance.setView(avatarConfig.settings?.cameraView || 'upper', {
+        cameraDistance: avatarConfig.settings?.cameraDistance || 0.5,
+        cameraRotateY: avatarConfig.settings?.cameraRotateY || 0,
+      });
+
+      // After TalkingHead appends its canvas, switch the container back to responsive sizing
+      // so it fills the flex/absolute parent correctly.
+      containerElement.style.width = '100%';
+      containerElement.style.height = '100%';
+
+      // Ensure canvas elements are properly styled
+      const canvasElements = containerElement.querySelectorAll('canvas');
+      canvasElements.forEach((canvas) => {
+        canvas.style.width = '100%';
+        canvas.style.height = '100%';
+        canvas.style.display = 'block';
+        canvas.style.imageRendering = 'auto';
+      });
+
+      // Attach voice settings for later use in speakAsAvatar()
+      instance._ttsVoice = avatarConfig.voice || getDefaultVoiceByGender({ gender: avatarConfig.gender, voice: avatarConfig.voice });
+      instance._ttsLang  = avatarConfig.settings?.ttsLang || 'en-GB';
+
+      // Store by element ID and by name for speaker lookup
+      avatarInstancesRef.current[containerId] = instance;
+      if (avatarConfig.name) {
+        avatarInstancesRef.current[avatarConfig.name] = instance;
+      }
+
+      console.log('[SceneWrapper] Avatar initialized successfully for:', containerId);
+      setAvatarStatus('ready');
       return instance;
+    } catch (err) {
+      console.error('[SceneWrapper] Error initializing avatar:', err);
+      setAvatarStatus('error');
+      setAvatarError(err.message || 'Unknown error initializing avatar');
+      return null;
     }
-    return null;
   };
 
   const initializeWebcam = async () => {
@@ -153,7 +371,11 @@ const SceneWrapper = ({ onExitQuiz }) => {
   useEffect(() => {
     if (!isSetup) {
       const timer = setTimeout(() => {
-        requestAnimationFrame(() => initializeScene());
+        requestAnimationFrame(async () => {
+          await initializeScene();
+          // Start conversation only after avatar is initialized
+          startConversation();
+        });
       }, 800);
       return () => clearTimeout(timer);
     }
@@ -170,11 +392,8 @@ const SceneWrapper = ({ onExitQuiz }) => {
     setMessages([]);
     setConversationComplete(false);
     setScore({ correct: 0, incorrect: 0, total: 0 });
-
-    // Start conversation after a delay to let scene initialize
-    setTimeout(() => {
-      startConversation();
-    }, 1500);
+    setAvatarStatus('idle');
+    setAvatarError(null);
   };
 
   const startConversation = async () => {
@@ -239,19 +458,31 @@ const SceneWrapper = ({ onExitQuiz }) => {
               }]);
               setCurrentSpeaker(msg.sender);
 
-              // Make avatar speak (use ref to get latest instance)
+              // Fire avatar speech — store the promise so we can await it
+              // before revealing the user input field.
               const avatar = avatarInstancesRef.current[msg.sender];
-              if (avatar && typeof avatar.speakText === 'function') {
-                try {
-                  avatar.speakText(msg.message || '');
-                } catch (e) {
-                  console.error('Error making avatar speak:', e);
-                }
+              if (avatar) {
+                currentSpeechRef.current = speakAsAvatar(
+                  avatar,
+                  msg.message || '',
+                  avatar._ttsLang  || 'en-GB',
+                  avatar._ttsVoice || null
+                );
               }
             } else if (data.type === 'human_input_required') {
+              // Wait for Alice to finish speaking before showing the input field.
+              // This gives the user time to listen before being prompted to type.
+              if (currentSpeechRef.current) {
+                await currentSpeechRef.current;
+                currentSpeechRef.current = null;
+              }
               setWaitingForInput(true);
               setCurrentSpeaker(data.speaker);
             } else if (data.type === 'completion') {
+              if (currentSpeechRef.current) {
+                await currentSpeechRef.current;
+                currentSpeechRef.current = null;
+              }
               setConversationComplete(true);
               setIsPlaying(false);
             }
@@ -316,11 +547,16 @@ const SceneWrapper = ({ onExitQuiz }) => {
 
   const resetQuiz = () => {
     stopQuiz();
-    // Stop avatar instances
+    // Stop avatar instances and free WebGL contexts
     Object.values(avatarInstancesRef.current).forEach(instance => {
-      if (instance && typeof instance.stop === 'function') {
-        try { instance.stop(); } catch (e) { /* ignore */ }
-      }
+      if (!instance) return;
+      try { instance.stop?.(); } catch (e) { /* ignore */ }
+      try {
+        if (instance.renderer) {
+          instance.renderer.forceContextLoss?.();
+          instance.renderer.dispose?.();
+        }
+      } catch (e) { /* ignore */ }
     });
     avatarInstancesRef.current = {};
     setIsSetup(true);
@@ -497,41 +733,27 @@ const SceneWrapper = ({ onExitQuiz }) => {
                               transition: 'border-color 0.3s',
                             }}
                           />
-                          {/* Fallback placeholder when avatar can't render */}
-                          {avatarFailed && (
-                            <div
-                              style={{
-                                width: '100%',
-                                height: '100%',
-                                display: 'flex',
-                                flexDirection: 'column',
-                                alignItems: 'center',
-                                justifyContent: 'center',
-                                backgroundColor: '#1e293b',
-                                border: isSpeaking ? '2px solid #3b82f6' : '1px solid rgba(255,255,255,0.1)',
-                                borderRadius: '8px',
-                                transition: 'border-color 0.3s',
-                              }}
-                            >
-                              <div style={{
-                                width: '80px',
-                                height: '80px',
-                                borderRadius: '50%',
-                                backgroundColor: '#334155',
-                                display: 'flex',
-                                alignItems: 'center',
-                                justifyContent: 'center',
-                                fontSize: '36px',
-                                marginBottom: '8px',
-                              }}>
-                                {element.avatarData.gender === 'male' ? '\u{1F468}' : '\u{1F469}'}
+                          {/* Avatar loading / error overlay */}
+                          {avatarStatus === 'loading' && (
+                            <div className="absolute inset-0 flex items-center justify-center bg-black bg-opacity-60 rounded-lg">
+                              <div className="text-center">
+                                <div className="w-6 h-6 border-2 border-blue-500 border-t-transparent rounded-full animate-spin mx-auto mb-2" />
+                                <p className="text-gray-300 text-xs">Loading avatar...</p>
                               </div>
-                              <span style={{ color: '#94a3b8', fontSize: '12px' }}>
-                                3D avatar unavailable
-                              </span>
-                              <span style={{ color: '#64748b', fontSize: '10px', marginTop: '2px' }}>
-                                WebGL not supported
-                              </span>
+                            </div>
+                          )}
+                          {avatarStatus === 'error' && (
+                            <div className="absolute inset-0 flex items-center justify-center bg-black bg-opacity-70 rounded-lg">
+                              <div className="text-center p-3">
+                                <p className="text-red-400 text-xs mb-1">Avatar failed to load</p>
+                                <p className="text-gray-500 text-xs mb-2">{avatarError}</p>
+                                <button
+                                  className="px-2 py-1 text-xs bg-blue-600 text-white rounded hover:bg-blue-700"
+                                  onClick={() => initializeScene()}
+                                >
+                                  Retry
+                                </button>
+                              </div>
                             </div>
                           )}
                           <div className="absolute bottom-2 left-0 right-0 text-center">
@@ -591,34 +813,56 @@ const SceneWrapper = ({ onExitQuiz }) => {
           </div>
         </div>
 
-        {/* Chat panel */}
-        <div className="w-[40%] border-l border-gray-700 flex flex-col" style={{ backgroundColor: '#1a1a2e' }}>
-          {/* Messages */}
-          <div className="flex-1 overflow-y-auto p-3 space-y-2">
+        {/* Transcript panel */}
+        <div className="w-[40%] border-l border-gray-700 flex flex-col" style={{ backgroundColor: '#0f1117' }}>
+          {/* Panel header */}
+          <div className="px-4 py-2 border-b border-gray-700 flex items-center gap-2 shrink-0">
+            <span className="text-xs font-semibold text-gray-400 uppercase tracking-wider">Interview Transcript</span>
+            {currentSpeaker && !waitingForInput && isPlaying && (
+              <span className="ml-auto flex items-center gap-1 text-xs text-blue-400">
+                <span className="inline-flex gap-0.5">
+                  <span className="w-1 h-3 bg-blue-400 rounded animate-bounce" style={{ animationDelay: '0ms' }} />
+                  <span className="w-1 h-3 bg-blue-400 rounded animate-bounce" style={{ animationDelay: '150ms' }} />
+                  <span className="w-1 h-3 bg-blue-400 rounded animate-bounce" style={{ animationDelay: '300ms' }} />
+                </span>
+                {currentSpeaker} speaking
+              </span>
+            )}
+          </div>
+
+          {/* Transcript messages */}
+          <div className="flex-1 overflow-y-auto p-4 space-y-4">
             {messages.length === 0 && !conversationComplete && (
-              <p className="text-gray-500 text-sm text-center mt-8">
-                Quiz is starting...
+              <p className="text-gray-600 text-sm text-center mt-8 italic">
+                Interview is starting…
               </p>
             )}
 
             {messages.map((msg, index) => (
-              <div
-                key={index}
-                className={`flex ${msg.isHuman ? 'justify-end' : 'justify-start'}`}
-              >
-                <div
-                  className={`max-w-[85%] px-3 py-2 rounded-lg text-sm ${
-                    msg.isHuman
-                      ? 'bg-blue-600 text-white'
-                      : 'bg-gray-700 text-gray-200'
-                  }`}
-                >
+              <div key={index} className={`flex flex-col ${msg.isHuman ? 'items-end' : 'items-start'}`}>
+                <div className="flex items-center gap-2 mb-1">
                   {!msg.isHuman && (
-                    <div className="text-xs font-semibold text-blue-400 mb-1">
-                      {msg.sender}
+                    <div className="w-5 h-5 rounded-full bg-blue-600 flex items-center justify-center text-white text-xs font-bold shrink-0">
+                      {msg.sender.charAt(0)}
                     </div>
                   )}
-                  <div>{msg.text}</div>
+                  <span className={`text-xs font-semibold ${msg.isHuman ? 'text-emerald-400' : 'text-blue-400'}`}>
+                    {msg.sender}
+                  </span>
+                  {msg.isHuman && (
+                    <div className="w-5 h-5 rounded-full bg-emerald-600 flex items-center justify-center text-white text-xs font-bold shrink-0">
+                      Y
+                    </div>
+                  )}
+                </div>
+                <div
+                  className={`max-w-[88%] px-3 py-2 rounded-lg text-sm leading-relaxed ${
+                    msg.isHuman
+                      ? 'bg-emerald-900 bg-opacity-40 text-emerald-100 border border-emerald-800'
+                      : 'bg-gray-800 text-gray-100 border border-gray-700'
+                  }`}
+                >
+                  {msg.text}
                 </div>
               </div>
             ))}
@@ -651,32 +895,36 @@ const SceneWrapper = ({ onExitQuiz }) => {
                   value={humanInput}
                   onChange={(e) => setHumanInput(e.target.value)}
                   onKeyDown={(e) => e.key === 'Enter' && submitHumanInput()}
-                  placeholder="Type your answer..."
-                  className="flex-1 px-3 py-2 text-sm rounded border border-gray-600 bg-gray-800 text-gray-200 focus:border-blue-500 focus:outline-none"
+                  placeholder="Speak or type your answer…"
+                  className="flex-1 px-3 py-2 text-sm rounded-lg border border-emerald-700 bg-gray-900 text-gray-100 focus:border-emerald-400 focus:outline-none placeholder-gray-600"
                 />
                 <button
-                  className="px-4 py-2 bg-blue-600 text-white text-sm rounded hover:bg-blue-700 transition-colors disabled:opacity-50"
+                  className="px-4 py-2 bg-emerald-600 text-white text-sm rounded-lg hover:bg-emerald-700 transition-colors disabled:opacity-40"
                   onClick={submitHumanInput}
                   disabled={!humanInput.trim()}
                 >
                   Send
                 </button>
               </div>
-              <p className="text-xs text-gray-500 mt-1">Press Enter to submit your answer</p>
+              <p className="text-xs text-gray-600 mt-1">Press Enter or click Send</p>
             </div>
           )}
 
-          {!waitingForInput && isPlaying && (
-            <div className="border-t border-gray-700 p-3 text-center">
-              <p className="text-sm text-gray-400 animate-pulse">
-                {currentSpeaker} is speaking...
-              </p>
+          {/* "Listening…" state: avatar not speaking, not yet prompting user */}
+          {!waitingForInput && isPlaying && currentSpeaker && (
+            <div className="border-t border-gray-800 px-4 py-2 flex items-center gap-2">
+              <span className="inline-flex gap-0.5">
+                <span className="w-1 h-3 bg-blue-500 rounded animate-bounce" style={{ animationDelay: '0ms' }} />
+                <span className="w-1 h-3 bg-blue-500 rounded animate-bounce" style={{ animationDelay: '150ms' }} />
+                <span className="w-1 h-3 bg-blue-500 rounded animate-bounce" style={{ animationDelay: '300ms' }} />
+              </span>
+              <p className="text-xs text-blue-400">{currentSpeaker} is speaking…</p>
             </div>
           )}
 
           {error && (
-            <div className="border-t border-red-700 p-3">
-              <p className="text-red-400 text-sm">{error}</p>
+            <div className="border-t border-red-800 px-4 py-2">
+              <p className="text-red-400 text-xs">{error}</p>
             </div>
           )}
         </div>
