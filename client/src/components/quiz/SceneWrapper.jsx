@@ -82,6 +82,7 @@ const SceneWrapper = ({ onExitQuiz }) => {
   const [examinerName, setExaminerName] = useState('Alice');
   const [maxTurns, setMaxTurns] = useState(50);
   const [isSetup, setIsSetup] = useState(true);
+  const [avatarFailed, setAvatarFailed] = useState(false);
 
   // Conversation state
   const [messages, setMessages] = useState([]);
@@ -562,6 +563,7 @@ const SceneWrapper = ({ onExitQuiz }) => {
     setMessages([]);
     setConversationComplete(false);
     setError('');
+    setAvatarFailed(false);
     setScore({ correct: 0, incorrect: 0, total: 0 });
   };
 
@@ -717,13 +719,14 @@ const SceneWrapper = ({ onExitQuiz }) => {
                           key={element.id}
                           className="w-full h-full relative"
                         >
+                          {/* 3D avatar container (hidden when WebGL unavailable) */}
                           <div
                             id={`avatar-container-${element.id}`}
                             style={{
                               width: '100%',
                               height: '100%',
                               position: 'relative',
-                              display: 'block',
+                              display: avatarFailed ? 'none' : 'block',
                               overflow: 'hidden',
                               border: isSpeaking ? '2px solid #3b82f6' : '1px solid rgba(255,255,255,0.1)',
                               borderRadius: '8px',
