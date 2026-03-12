@@ -122,20 +122,26 @@ app.post("/api/start-conversation", async (req, res) => {
 
     conversationManager.onMessageGenerated = (message) => {
       console.log(`Message generated from ${message.sender}: ${message.message?.substring(0, 30)}...`);
-      
+
+      // Don't echo back human input messages — the client already adds them locally
+      if (message.isHumanInput) {
+        console.log(`Skipping echo of human input from ${message.sender}`);
+        return;
+      }
+
       // If message has needsApproval flag, log it clearly for debugging
       if (message.needsApproval) {
         console.log(`APPROVAL REQUIRED: Message from ${message.sender} needs approval - isDerailing: ${message.isDerailing}`);
       }
-      
+
       // If conversation is paused and this is not a system message or derailing message,
       // don't send the message to the client
-      if ((conversationManager.isWaitingForApproval || conversationManager.conversationPaused) && 
+      if ((conversationManager.isWaitingForApproval || conversationManager.conversationPaused) &&
           !message.isSystemMessage && !message.isDerailing) {
         console.log('Message generation skipped - conversation is paused');
         return;
       }
-      
+
       safeWrite(JSON.stringify({ type: "message", message }) + "\n");
     };
 
@@ -316,6 +322,8 @@ async function runConversation(config) {
       agent.isHumanProxy,
       agent.customAttributes,
       agent.fillerWordsFrequency,
+      null, // proactiveSettings
+      agent.roleDescription || null,
     );
 
     if (agent.isHumanProxy) {

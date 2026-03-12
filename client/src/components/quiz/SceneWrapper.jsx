@@ -383,7 +383,7 @@ const SceneWrapper = ({ onExitQuiz }) => {
 
   const startQuiz = async () => {
     if (flashcards.length === 0) {
-      setError('Please add at least one flashcard before starting the quiz.');
+      setError('Please add at least one flashcard before starting the interview.');
       return;
     }
 
@@ -574,9 +574,9 @@ const SceneWrapper = ({ onExitQuiz }) => {
       <div className="w-full h-screen bg-gray-900 text-gray-200 flex flex-col">
         {/* Header */}
         <header className="h-12 bg-gray-800 border-b border-gray-700 flex items-center px-4 shrink-0">
-          <span className="text-lg font-bold text-white">DialogLab</span>
+          <span className="text-lg font-bold text-white">Interview Simulator</span>
           <span className="text-gray-500 mx-2">|</span>
-          <span className="text-sm text-blue-400">Quiz Mode</span>
+          <span className="text-sm text-blue-400">Interview Mode</span>
           {onExitQuiz && (
             <button
               className="ml-auto px-3 py-1 text-sm bg-gray-700 text-gray-300 rounded hover:bg-gray-600 transition-colors"
@@ -590,9 +590,9 @@ const SceneWrapper = ({ onExitQuiz }) => {
         {/* Setup panel */}
         <div className="flex-1 overflow-y-auto p-6">
           <div className="max-w-3xl mx-auto">
-            <h1 className="text-2xl font-bold mb-2">Quiz Setup</h1>
+            <h1 className="text-2xl font-bold mb-2">Interview Setup</h1>
             <p className="text-gray-400 mb-6">
-              Configure your quiz session. Upload flashcards and the examiner will quiz you on them.
+              Configure your interview session. Upload flashcards and the interviewer will ask you questions.
             </p>
 
             {error && (
@@ -614,7 +614,7 @@ const SceneWrapper = ({ onExitQuiz }) => {
                 />
               </div>
               <div>
-                <label className="block text-sm text-gray-400 mb-1">Examiner Name</label>
+                <label className="block text-sm text-gray-400 mb-1">Interviewer Name</label>
                 <select
                   value={examinerName}
                   onChange={(e) => setExaminerName(e.target.value)}
@@ -645,7 +645,7 @@ const SceneWrapper = ({ onExitQuiz }) => {
                 onClick={startQuiz}
                 disabled={flashcards.length === 0}
               >
-                Start Quiz ({flashcards.length} card{flashcards.length !== 1 ? 's' : ''})
+                Start Interview ({flashcards.length} card{flashcards.length !== 1 ? 's' : ''})
               </button>
             </div>
           </div>
@@ -659,9 +659,9 @@ const SceneWrapper = ({ onExitQuiz }) => {
     <div className="w-full h-screen bg-gray-900 text-gray-200 flex flex-col">
       {/* Header */}
       <header className="h-12 bg-gray-800 border-b border-gray-700 flex items-center px-4 shrink-0">
-        <span className="text-lg font-bold text-white">DialogLab</span>
+        <span className="text-lg font-bold text-white">Interview Simulator</span>
         <span className="text-gray-500 mx-2">|</span>
-        <span className="text-sm text-blue-400">Quiz: {topic}</span>
+        <span className="text-sm text-blue-400">Interview: {topic}</span>
         <div className="ml-auto flex items-center gap-3">
           <span className="text-xs text-gray-400">
             {flashcards.length} cards
@@ -678,7 +678,7 @@ const SceneWrapper = ({ onExitQuiz }) => {
             className="px-3 py-1 text-sm bg-gray-700 text-gray-300 rounded hover:bg-gray-600 transition-colors"
             onClick={resetQuiz}
           >
-            New Quiz
+            New Interview
           </button>
           {onExitQuiz && (
             <button
@@ -806,7 +806,7 @@ const SceneWrapper = ({ onExitQuiz }) => {
               <div className="absolute inset-0 flex items-center justify-center bg-black bg-opacity-50">
                 <div className="text-center">
                   <div className="w-8 h-8 border-2 border-blue-500 border-t-transparent rounded-full animate-spin mx-auto mb-2" />
-                  <p className="text-gray-300 text-sm">Initializing quiz...</p>
+                  <p className="text-gray-300 text-sm">Initializing interview...</p>
                 </div>
               </div>
             )}
@@ -869,15 +869,15 @@ const SceneWrapper = ({ onExitQuiz }) => {
 
             {conversationComplete && (
               <div className="text-center py-4 border-t border-gray-700 mt-4">
-                <p className="text-green-400 font-semibold">Quiz Complete!</p>
+                <p className="text-green-400 font-semibold">Interview Complete!</p>
                 <p className="text-gray-400 text-sm mt-1">
-                  Great job! You can start a new quiz or review the conversation above.
+                  Great job! You can start a new interview or review the conversation above.
                 </p>
                 <button
                   className="mt-3 px-4 py-2 bg-blue-600 text-white text-sm rounded hover:bg-blue-700 transition-colors"
                   onClick={resetQuiz}
                 >
-                  Start New Quiz
+                  Start New Interview
                 </button>
               </div>
             )}

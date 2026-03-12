@@ -122,7 +122,7 @@ export function createQuizConversationConfig(scene, flashcards = [], options = {
     const flashcardList = flashcards
       .map((fc, i) => `  ${i + 1}. Q: ${fc.question} | A: ${fc.answer}`)
       .join('\n');
-    flashcardContext = `You have the following flashcards to quiz the student on:\n${flashcardList}\n\nAsk these questions one at a time. After the student answers, tell them if they are correct or not, provide a brief explanation, then move to the next question. When all questions are done, give a summary of how they did.`;
+    flashcardContext = `You are conducting an oral quiz. Here are the flashcards:\n${flashcardList}\n\nIMPORTANT INSTRUCTIONS:\n1. Ask ONE question at a time from the flashcards above.\n2. After the student answers, you MUST assess their answer: say whether it is correct or incorrect, and give a brief explanation (1-2 sentences).\n3. Then ask the next question.\n4. When all questions have been asked, give a short summary of their performance.\n\nAlways follow this pattern: Ask question → Wait for answer → Assess answer with feedback → Ask next question.`;
   } else {
     flashcardContext = 'No flashcards have been loaded yet. Introduce yourself and tell the student to upload some flashcards to begin the quiz.';
   }
@@ -136,6 +136,7 @@ export function createQuizConversationConfig(scene, flashcards = [], options = {
       {
         name: examinerName,
         personality: 'professional, encouraging, and thorough examiner',
+        roleDescription: 'You are an examiner conducting an oral quiz. After every student answer, you MUST provide feedback: say whether the answer is correct or incorrect, give a brief explanation, then ask the next question. Never skip the assessment step.',
         interactionPattern: 'neutral',
         isHumanProxy: false,
         customAttributes: {},
